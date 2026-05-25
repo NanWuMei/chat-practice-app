@@ -1,175 +1,179 @@
-# Chat Practice MVP Design
+# 聊天训练 MVP 设计文档
 
-## Product Positioning
+## 产品定位
 
-This project is a local MVP for a Chinese WeChat-context chat training app. It helps men in their 20s who struggle to build natural relationships with women, especially when moving from ordinary conversation to familiarity, and from familiarity to light flirtation.
+本项目是一个本地可用的中文聊天训练 MVP，核心语境是中国大陆年轻人的微信聊天。它帮助 20 多岁、不太会和异性或女性朋友自然建立关系的单身男性，训练从普通聊天到更熟悉、再到轻微暧昧的能力。
 
-The product should feel like practicing with a realistic person rather than chatting with a generic bot. It focuses on healthy relationship skills: expression, listening, emotional attunement, boundaries, and natural progression. It may teach concrete progression skills, but it must not teach manipulation, pressure, harassment, or PUA-style tactics.
+产品要像是在和一个真实的人练习聊天，而不是和一个泛泛的聊天机器人对话。它的底层立场是健康关系训练：提升表达、倾听、情绪回应、边界感和自然推进能力。它可以教具体的推进技巧，但不能教操控、施压、骚扰、PUA 或套路化收割。
 
-## Target User
+第一版所有用户可见文案、人格设定、聊天回复、提示和复盘都默认使用简体中文，并贴近中文微信聊天的表达习惯。
 
-The first target user is a single man in his 20s in mainland China who can start a conversation but often gets stuck when the chat becomes dull, repetitive, or ambiguous. He wants to become better at maintaining warmth, creating comfort, and gently testing romantic interest without becoming awkward, needy, aggressive, or oily.
+## 目标用户
 
-## MVP Scope
+第一批目标用户是 20 多岁的中国大陆单身男性。他们不是完全不会开口，而是常常在聊天过程中遇到这些问题：
 
-The MVP is a local web app with real AI calls. It does not include login, payment, community, real-person matching, complex courses, voice messages, image messages, red packets, or full WeChat cloning.
+- 聊着聊着变成查户口。
+- 每天只会问“在干嘛”“吃了吗”。
+- 对方回复变短后不知道怎么接。
+- 想让关系更近一点，但怕油腻、怕冒犯、怕尴尬。
+- 分不清对方是客气、慢热、没兴趣，还是有机会。
 
-The first version includes:
+用户希望练出的能力不是“套话术”，而是更自然地维持聊天温度、建立熟悉感、观察边界，并在合适的时候轻微试探暧昧。
 
-- Five high-quality persona cards.
-- Free-form simulated chat.
-- Hidden relationship state tracking.
-- Optional hint button during chat.
-- End-of-session review report.
-- Local persistence for personas, chat records, state history, and review results.
+## MVP 范围
 
-## Core User Flow
+MVP 是一个本地 Web App，真实接入大模型 API。第一版不做登录、付费、社区、真人匹配、复杂课程、语音、图片、红包，也不做完整微信复刻。
 
-1. The user selects a simulated person.
-2. The app shows concise context: who she is, how the user knows her, current relationship stage, and recent chat status.
-3. The user enters a WeChat-like chat screen and chats freely.
-4. The AI replies according to the persona, recent messages, relationship state, and training goal.
-5. The backend updates hidden relationship state after each user message.
-6. The user can request optional guidance, but guidance does not appear by default.
-7. The user ends the session after roughly 8-20 turns, or when the app suggests review.
-8. The app generates a review report explaining what happened, why it happened, and what to do next.
+第一版包含：
 
-## Training Goals
+- 5 张高质量中文人格卡。
+- 自由模拟聊天。
+- 隐藏关系状态追踪。
+- 聊天中的可选提示按钮。
+- 结束后的复盘报告。
+- 本地保存人格、聊天记录、关系状态历史和复盘结果。
 
-The first version focuses on two relationship stages:
+## 核心用户流程
 
-- From ordinary chat to becoming more familiar.
-- From familiarity to light flirtation.
+1. 用户选择一个模拟对象。
+2. 系统展示简短背景：她是谁、你们怎么认识、当前关系阶段、最近聊天温度。
+3. 用户进入类似微信的聊天界面，自由发送消息。
+4. AI 根据人格、最近上下文、关系状态和训练目标生成回复。
+5. 后端在每次用户发言后更新隐藏关系状态。
+6. 用户可以点“提示”获取方向，但系统默认不打断聊天。
+7. 用户在约 8-20 轮后结束本局，或在明显冷场、升温、目标完成时进入复盘。
+8. 系统生成复盘报告，解释这轮关系发生了什么、为什么发生、下次应该怎么聊。
 
-Each session can have a hidden or explicit training goal such as:
+## 训练目标
 
-- Make the conversation feel less like an interview.
-- Recover warmth after the chat becomes flat.
-- Build familiarity through self-disclosure and emotional response.
-- Test light flirtation without pressuring the other person.
-- Notice whether the other person is interested, polite, avoidant, or uncomfortable.
+第一版聚焦两个关系阶段：
 
-## Persona System
+- 从普通聊天到更熟悉。
+- 从熟悉到轻微暧昧。
 
-The MVP should start with five persona cards rather than many shallow personas:
+每一局可以有一个明确或隐藏的训练目标，例如：
 
-1. A slow-warming but sincere woman of similar age.
-2. An expressive woman who likes sharing daily life.
-3. A busy woman with strong boundaries and career or study pressure.
-4. An already familiar female friend.
-5. A woman with mild ambiguous interest but uncertain attitude.
+- 让聊天不要像面试。
+- 在聊天变淡后重新拉回温度。
+- 通过自我分享和情绪回应建立熟悉感。
+- 在不施压的前提下轻微试探暧昧。
+- 判断对方是在感兴趣、客气、回避还是不舒服。
 
-Each persona card includes:
+## 人格系统
 
-- Basic background: age, work or study status, city, life rhythm.
-- Personality style: outgoing or slow-warming, rational or emotional, active or passive, boundary strength.
-- Chat habits: message length, emoji use, whether she asks questions back, whether she shares daily details.
-- Relationship setup: how the user knows her, current relationship stage, recent chat temperature.
-- Interests and sensitive areas: what she enjoys, what makes her withdraw, what kinds of questions feel intrusive.
-- Current mood and context: tired after work, just exercised, weekend plans, exam pressure, and similar local context.
+MVP 先做 5 张高质量人格卡，而不是大量浅人格：
 
-## Relationship State
+1. 慢热但真诚的同龄女生。
+2. 活泼、爱分享日常的同龄女生。
+3. 边界感强、工作或学习很忙的女生。
+4. 已经比较熟的女性朋友。
+5. 有轻微暧昧但态度不确定的女生。
 
-The app tracks five hidden relationship indicators:
+每张人格卡包含：
 
-- Comfort: whether chatting feels relaxed and safe.
-- Trust: whether she is willing to share more real information.
-- Interest: whether the user feels interesting and worth continuing with.
-- Ambiguity: whether there is light romantic tension or room for testing.
-- Pressure: whether the user feels too eager, interrogative, needy, or boundary-crossing.
+- 基础背景：年龄、工作或学习状态、城市、生活节奏。
+- 性格风格：外向或慢热、理性或感性、主动或被动、边界感强弱。
+- 聊天习惯：消息长短、表情使用、是否爱反问、是否会分享日常。
+- 关系设定：你们怎么认识、目前关系阶段、最近聊天温度。
+- 兴趣点和雷区：喜欢什么、什么会让她后退、什么问题会显得冒犯。
+- 当前心情和近期上下文：工作很累、刚运动完、周末有安排、考试压力等。
 
-These scores are not shown during the chat by default. They are shown in the review report with explanations. This prevents users from optimizing for points instead of practicing realistic conversation.
+## 关系状态
 
-State changes should be explainable. For example:
+系统在后台追踪 5 个隐藏关系指标：
 
-- Closed, interview-like questions reduce comfort and interest.
-- Emotional reflection, relevant self-disclosure, and relaxed humor raise comfort and trust.
-- Light teasing may raise ambiguity when trust and comfort are already high.
-- Forced flirtation, repeated demands, sexual comments, or ignoring rejection raise pressure and cool the AI response.
+- 舒适度：她是否觉得和你聊天轻松、安全。
+- 信任感：她是否愿意分享更多真实信息。
+- 兴趣感：她是否觉得你这个人有内容、有趣，值得继续聊。
+- 暧昧感：是否存在一点关系张力和试探空间。
+- 压迫感：你是否显得太急、太查户口、太需求感、太越界。
 
-## Chat Experience
+聊天过程中默认不展示这些分数，只在复盘里展示变化和原因。这样可以避免用户为了刷分聊天，破坏真实微信感。
 
-The chat interface should suggest WeChat without trying to fully clone it. It includes:
+状态变化必须能解释。例如：
 
-- A top bar with persona nickname and relationship stage.
-- Left-side bubbles for the AI persona.
-- Right-side bubbles for the user.
-- A text input and send button.
-- A subtle hint button.
-- A way to end the session and enter review.
+- 连续封闭式提问、查户口，会降低舒适度和兴趣感。
+- 接住情绪、适度分享自己、轻松幽默，会提升舒适度和信任感。
+- 在舒适度和信任感足够时轻微调侃，可能提升暧昧感。
+- 关系基础不够时强行暧昧、性暗示、反复索取回应或无视拒绝，会提高压迫感，并让 AI 自然降温。
 
-The AI persona should not always cooperate. Depending on the user message and state, she may:
+## 聊天体验
 
-- Reply warmly.
-- Reply briefly.
-- Ask a question back.
-- Share daily life.
-- Dodge a topic.
-- Change the subject.
-- Become colder after pressure or boundary issues.
-- Gently test the user if the relationship is warm enough.
+聊天界面要有微信感，但不追求完整复刻。第一版包含：
 
-The optional hint button should provide direction rather than a copy-paste answer. Example hint styles:
+- 顶部显示模拟对象昵称和当前关系阶段。
+- 左侧气泡显示 AI 回复。
+- 右侧气泡显示用户消息。
+- 输入框和发送按钮。
+- 一个不显眼的“提示”按钮。
+- 一个“结束并复盘”入口。
 
-- "First respond to her feeling, then add one sentence from your own experience."
-- "This is not a good moment to flirt. Make the chat easier first."
-- "Ask a lighter follow-up instead of turning this into an interview."
+AI 模拟对象不能总是配合用户。根据用户发言和关系状态，她可能会：
 
-## Review Report
+- 热情回复。
+- 简短回复。
+- 反问用户。
+- 主动分享日常。
+- 避开某个话题。
+- 转移话题。
+- 在感到压迫或越界后变冷。
+- 在关系足够温暖时轻微试探用户。
 
-The review report is the heart of the product. It should feel like a mature relationship coach: direct, specific, and non-shaming.
+“提示”按钮只给方向，不直接给可复制话术。示例：
 
-The report includes:
+- “先回应她的情绪，再补一句你自己的类似经历。”
+- “现在不适合开暧昧玩笑，先把聊天变轻松。”
+- “这个问题有点像面试，可以换成分享自己再轻轻问一句。”
 
-1. Current relationship judgment: a short summary of the state after this chat.
-2. Relationship score changes: start and end values for comfort, trust, interest, ambiguity, and pressure, with reasons.
-3. Key turning points: 2-4 important user messages that changed the direction of the chat.
-4. Better alternatives: 1-2 improved versions for selected weak messages, with an explanation of why they are better.
-5. Next-session goal: one concrete objective for the next chat.
+## 复盘报告
 
-The review should avoid insulting labels such as "low value", "simp", or "straight-man disease". It can say a message was too urgent, too interrogative, or too pressure-heavy, but it should explain the behavior and the repair path.
+复盘是产品核心，不只是打分。它应该像一个成熟的关系教练：直接、具体、不羞辱人。
 
-If the user attempts manipulation, coercion, sexual harassment, repeated pressure, or ignoring rejection, the review should clearly mark the boundary issue and redirect toward respectful communication. The app must not help convert harmful intent into more effective manipulation.
+复盘包含 5 部分：
 
-## Technical Architecture
+1. 当前关系判断：用一句话说明这轮聊完后关系处于什么状态。
+2. 关系指标变化：展示舒适度、信任感、兴趣感、暧昧感、压迫感的起止变化和原因。
+3. 关键转折点：指出 2-4 条最影响聊天方向的用户消息。
+4. 更好的说法：对关键弱句给出 1-2 个替代表达，并解释为什么更自然。
+5. 下一轮目标：给一个明确训练目标。
 
-The MVP is a local web app with a frontend and backend:
+复盘要避免羞辱性标签，例如“低价值”“舔狗”“直男癌”。它可以说“这句有点急”“这里像查户口”“这里没有接住她的情绪”，但要同时指出修正方式。
 
-- Frontend: React with Vite for a single-page training experience.
-- Backend: Node.js with Express.
-- Storage: SQLite for personas, sessions, messages, state history, and reviews.
-- AI: real model API configured through environment variables.
+如果用户出现操控、施压、性骚扰、反复纠缠或无视拒绝，系统要明确指出边界问题，并引导到尊重边界的表达。系统不能帮用户把有害意图包装成更隐蔽、更有效的操控话术。
 
-The initial stack is:
+## 技术架构
 
-- React + Vite for the frontend.
-- Express for the backend.
-- SQLite for local structured persistence.
+MVP 是一个本地 Web App，包含前端和后端：
 
-This keeps the frontend and backend easy to inspect while avoiding premature deployment complexity.
+- 前端：React + Vite，用于构建单页训练体验。
+- 后端：Node.js + Express。
+- 存储：SQLite，本地保存人格、会话、消息、关系状态历史和复盘。
+- AI：通过环境变量配置真实大模型 API。
 
-## Data Flow
+这个技术栈足够简单，便于快速迭代，同时比纯前端假数据更适合验证核心训练价值。
 
-1. User selects a persona.
-2. Backend creates a training session.
-3. Backend initializes hidden relationship state and session goal.
-4. User sends a message.
-5. Backend sends the persona card, recent chat history, current relationship state, and session goal to the AI.
-6. AI returns a visible reply and structured hidden state updates.
-7. Backend validates and stores the reply, message, state delta, and state reason.
-8. Frontend displays only the visible reply.
-9. User ends the session.
-10. Backend sends the full transcript, persona, state history, and goal to the review model.
-11. AI returns a structured review report.
-12. Frontend displays the review.
+## 数据流
 
-## AI Output Contracts
+1. 用户选择人格。
+2. 后端创建训练会话。
+3. 后端初始化隐藏关系状态和训练目标。
+4. 用户发送消息。
+5. 后端把人格卡、最近聊天记录、当前关系状态、训练目标发给 AI。
+6. AI 返回可见回复和结构化状态更新。
+7. 后端校验并保存用户消息、AI 回复、状态变化和变化原因。
+8. 前端只展示可见回复，不展示后台评分。
+9. 用户结束本局。
+10. 后端把完整聊天记录、人格、状态历史和目标发给复盘模型。
+11. AI 返回结构化复盘报告。
+12. 前端展示复盘。
 
-Chat response should use structured JSON:
+## AI 输出契约
+
+聊天回复使用结构化 JSON：
 
 ```json
 {
-  "reply": "visible message from the simulated person",
+  "reply": "模拟对象发给用户看的中文消息",
   "state_delta": {
     "comfort": 0,
     "trust": 0,
@@ -177,16 +181,16 @@ Chat response should use structured JSON:
     "ambiguity": 0,
     "pressure": 0
   },
-  "state_reason": "brief reason for the state change",
+  "state_reason": "本次状态变化的简短中文原因",
   "boundary_flags": []
 }
 ```
 
-Review response should use structured JSON:
+复盘结果使用结构化 JSON：
 
 ```json
 {
-  "summary": "overall relationship judgment",
+  "summary": "本轮关系状态的一句话中文判断",
   "scores": {
     "comfort": { "start": 50, "end": 58, "reason": "..." },
     "trust": { "start": 40, "end": 45, "reason": "..." },
@@ -212,56 +216,56 @@ Review response should use structured JSON:
 }
 ```
 
-The backend should validate the structure and fall back gracefully if parsing fails.
+后端必须校验结构。如果模型返回格式不合法，要有可恢复的降级处理或重试机制。
 
-## Error Handling
+## 异常处理
 
-The MVP should handle:
+MVP 至少处理这些异常：
 
-- Missing API key.
-- Model call failure.
-- Invalid model JSON.
-- Empty user message.
-- Missing or expired session.
-- Storage read or write failure.
+- 缺少 API Key。
+- 模型调用失败。
+- 模型返回 JSON 解析失败。
+- 用户发送空消息。
+- 会话不存在或过期。
+- 本地存储读写失败。
 
-Errors should be clear and recoverable. For example, users should be able to retry a failed AI reply without losing the session.
+错误提示要清楚、可恢复。例如 AI 回复失败时，用户应该可以重试，而不是直接丢失整局聊天。
 
-## Acceptance Criteria
+## 验收标准
 
-The MVP is acceptable when:
+MVP 达标时应满足：
 
-- The user can select one of five personas and start a session.
-- The user can chat freely for 8-20 turns.
-- Persona behavior remains stable within a session.
-- The simulated person can warm up, cool down, dodge, ask back, or share based on the user's behavior.
-- Hidden relationship scores change in ways that can be tied to concrete messages.
-- The user can request optional hints.
-- The user can end the session and receive a structured review.
-- The review identifies relationship state, key turning points, better expressions, and next steps.
-- Boundary-crossing behavior is cooled down in chat and clearly addressed in review.
-- Sessions and reviews are saved locally.
+- 用户可以选择 5 个中文人格之一并开始训练。
+- 用户可以自由聊天约 8-20 轮。
+- 同一人格在一局里性格、边界和回复节奏保持稳定。
+- 模拟对象会根据用户表现升温、降温、闪避、反问或主动分享。
+- 隐藏关系分数变化能对应到具体聊天内容。
+- 用户可以请求可选提示。
+- 用户可以结束本局并获得结构化复盘。
+- 复盘能指出当前关系状态、关键转折、更好的表达和下一步建议。
+- 越界行为会在聊天中被自然降温，并在复盘里被明确指出。
+- 会话和复盘会保存在本地。
 
-## Non-Goals
+## 非目标
 
-The first version will not include:
+第一版不做：
 
-- User accounts.
-- Cloud sync.
-- Payment.
-- Deployment.
-- Mobile native app.
-- Real-person matching.
-- Group chat.
-- Voice messages.
-- Image messages.
-- Full WeChat feature cloning.
-- A large course library.
+- 用户账号。
+- 云同步。
+- 付费。
+- 部署上线。
+- 原生移动 App。
+- 真人匹配。
+- 群聊。
+- 语音消息。
+- 图片消息。
+- 完整微信功能复刻。
+- 大型课程库。
 
-## Open Implementation Decisions
+## 后续实现阶段可定的事项
 
-These decisions can be made during implementation planning:
+以下事项放到实现计划中细化：
 
-- Which AI provider and model to use first, as long as the backend keeps a replaceable AI adapter.
-- Exact visual style of the chat screen.
-- Exact score range and state clamping rules.
+- 第一版使用哪个 AI 供应商和模型，但后端要保留可替换的 AI 适配层。
+- 聊天界面的具体视觉风格。
+- 关系分数的范围、初始值和上下限规则。
