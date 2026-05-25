@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseChatModelResult, parseReviewModelResult } from "../../src/shared/validators";
+import { parseChatModelResult, parseHintResult, parseReviewModelResult } from "../../src/shared/validators";
 
 describe("AI output validators", () => {
   it("parses a valid chat model result", () => {
@@ -42,5 +42,40 @@ describe("AI output validators", () => {
 
     expect(result.scores.comfort.end).toBe(56);
     expect(result.next_goal).toContain("下次");
+  });
+
+  it("parses a valid hint result", () => {
+    const result = parseHintResult({
+      hints: ["先接住她的疲惫。", "分享一个自己的小片段。"]
+    });
+
+    expect(result.hints).toHaveLength(2);
+    expect(result.hints[0]).toContain("疲惫");
+  });
+
+  it("rejects an empty hint array", () => {
+    expect(() => parseHintResult({ hints: [] })).toThrow();
+  });
+
+  it("rejects a non-string hint", () => {
+    expect(() => parseHintResult({ hints: ["先放慢节奏。", 42] })).toThrow();
+  });
+
+  it("rejects a whitespace-only review score reason", () => {
+    expect(() =>
+      parseReviewModelResult({
+        summary: "她愿意继续聊，但暧昧基础还不够。",
+        scores: {
+          comfort: { start: 50, end: 56, reason: "   " },
+          trust: { start: 40, end: 43, reason: "有少量自我分享。" },
+          interest: { start: 45, end: 47, reason: "话题变得具体。" },
+          ambiguity: { start: 20, end: 21, reason: "没有明显推进。" },
+          pressure: { start: 15, end: 14, reason: "没有逼问。" }
+        },
+        turning_points: [{ user_message: "那你今天应该挺累吧", impact: "升温", why: "接住了情绪。" }],
+        better_versions: [{ original: "在干嘛", better: "我刚收工，你今天也挺忙吧？", why: "先分享自己。" }],
+        next_goal: "下次继续围绕她的工作压力轻松展开。"
+      })
+    ).toThrow();
   });
 });

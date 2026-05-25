@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { ChatModelResult, ReviewModelResult } from "./types";
+import type { ChatModelResult, HintResult, ReviewModelResult } from "./types";
 
 const metricDeltaSchema = z.object({
   comfort: z.number().int().min(-10).max(10),
@@ -12,7 +12,7 @@ const metricDeltaSchema = z.object({
 const scoreSchema = z.object({
   start: z.number().int().min(0).max(100),
   end: z.number().int().min(0).max(100),
-  reason: z.string().min(1)
+  reason: z.string().trim().min(1)
 });
 
 const chatModelResultSchema = z.object({
@@ -48,10 +48,18 @@ const reviewModelResultSchema = z.object({
   next_goal: z.string().trim().min(1)
 });
 
+const hintResultSchema = z.object({
+  hints: z.array(z.string().trim().min(1)).min(1).max(3)
+});
+
 export function parseChatModelResult(input: unknown): ChatModelResult {
   return chatModelResultSchema.parse(input);
 }
 
 export function parseReviewModelResult(input: unknown): ReviewModelResult {
   return reviewModelResultSchema.parse(input);
+}
+
+export function parseHintResult(input: unknown): HintResult {
+  return hintResultSchema.parse(input);
 }
