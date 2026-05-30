@@ -1,213 +1,39 @@
-import { Router, type Request, type Response } from "express";
-import { randomUUID } from "crypto";
-import type { ChatMessage, TrainingSession, SessionSummary, DualReviewReport, DistilledPersona, BehaviorMetrics } from "../shared/types";
-import { callAIWithRetry } from "./ai/provider";
-import { buildChatPrompt, buildMemoryExtractionPrompt } from "./ai/prompts";
-import { parseChatModelResult } from "../shared/validators";
-import { runDualReview } from "./ai/review";
-import { liangYouan, tongJincheng, gottman } from "./data";
-import { seedDefaultData } from "./db";
-import * as personaService from "./services/personaService";
-import * as sessionService from "./services/sessionService";
+import { Router, type Request, type Response } from 'express';
+import { randomUUID } from 'crypto';
+import type { ChatMessage, TrainingSession, SessionSummary, DistilledPersona, DebriefSession, DebriefReport, KMType, PatternDiscovery, PatternContextEntry, ActionAnchor } from '../shared/types';
+import { callAIWithRetry } from './ai/provider';
+import { buildChatPrompt, buildAggregateSocratesPrompt } from './ai/prompts';
+import { parseChatModelResult } from '../shared/validators';
+import { runMirrorDebrief, updateBaseline } from './ai/review';
+import { liangYouan } from './data';
+import { seedDefaultData } from './db';
+import * as personaService from './services/personaService';
+import * as sessionService from './services/sessionService';
+import * as growthService from './services/growthService';
 
 const router = Router();
 
-// 情感账户阶段阈值
-const STAGE_THRESHOLDS = [
-  { stage: "恋人", minScore: 350 },
-  { stage: "暧昧期", minScore: 200 },
-  { stage: "好朋友", minScore: 100 },
-  { stage: "普通朋友", minScore: 30 },
-  { stage: "陌生人", minScore: 0 },
-];
-const TERMINATION_THRESHOLD = -10;
-
-// 初始化数据库并播种默认数据
 seedDefaultData([liangYouan]);
 
-// ============================================================
-// 辅助
-// ============================================================
-
 function addSystemMsg(sessionId: string, content: string): void {
-  sessionService.addMessage(sessionId, "system", content);
-}
-
-function getSessionNum(personaId: string): number {
-  return sessionService.getSessionsByPersona(personaId).length;
-}
-
-function computeBehaviorMetrics(
-  personaId: string,
-  currentSessionId: string,
-  currentMessages: ChatMessage[],
-): BehaviorMetrics {
-  const userTurns = currentMessages.filter((m) => m.role === "user").length;
-  const isShortChat = userTurns < 8;
-
-  const personaSessions = sessionService.getSessionsByPersona(personaId)
-    .filter((s) => s.id !== currentSessionId)
-    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-
-  const lastSession = personaSessions[0];
-  let daysSinceLastSession: number | null = null;
-  let frequencyDelta = 0;
-  let ghostPenalty = 0;
-
-  if (lastSession) {
-    const lastTime = new Date(lastSession.createdAt).getTime();
-    const currentTime = new Date().getTime();
-    daysSinceLastSession = Math.floor((currentTime - lastTime) / (1000 * 60 * 60 * 24));
-
-    if (daysSinceLastSession <= 1) {
-      frequencyDelta = 3;
-    } else if (daysSinceLastSession >= 5) {
-      frequencyDelta = -5;
-    }
-
-    const lastMessages = sessionService.getMessages(lastSession.id);
-    const lastMsg = lastMessages[lastMessages.length - 1];
-    if (lastMsg && lastMsg.role === "persona" && lastSession.status === "active") {
-      ghostPenalty = 10;
-    }
-  }
-
-  return {
-    turnCount: userTurns,
-    isShortChat,
-    ghostPenalty,
-    ghostFromPrevious: 0,
-    frequencyDelta,
-    daysSinceLastSession,
-  };
-}
-
-function formatBehaviorContext(metrics: BehaviorMetrics): string {
-  const parts: string[] = [];
-  parts.push(`- 本次聊天轮数：${metrics.turnCount}轮${metrics.isShortChat ? "（低于8轮标准，请在评分中体现这种'聊两句就走'的行为）" : ""}`);
-  if (metrics.daysSinceLastSession !== null) {
-    parts.push(`- 距上次聊天：${metrics.daysSinceLastSession}天`);
-    if (metrics.frequencyDelta > 0) parts.push(`  → 频繁聊天，关系维护良好（+${metrics.frequencyDelta}分）`);
-    if (metrics.frequencyDelta < 0) parts.push(`  → 长期未来聊天，关系疏远（${metrics.frequencyDelta}分）`);
-  } else {
-    parts.push("- 这是第一次聊天");
-  }
-  if (metrics.ghostPenalty > 0) {
-    parts.push(`- ⚠️ 已读不回：上次聊天的最后一句是对方发的，用户没有回复就开了新会话（-${metrics.ghostPenalty}分）`);
-  }
-  return parts.join("\n");
+  sessionService.addMessage(sessionId, 'system', content);
 }
 
 // ============================================================
-// 结构化长期记忆
+// 获取所有角色
 // ============================================================
 
-type SessionMemory = {
-  sessionNum: number;
-  date: string;
-  factsAboutUser: string[];
-  personaImpression: string;
-  keyMoments: string[];
-  relationshipState: string;
-  bankScore?: number;
-  stage?: string;
-};
-
-async function extractSessionMemory(
-  session: TrainingSession,
-  sessionMessages: ChatMessage[],
-  reviewData: DualReviewReport | undefined
-): Promise<SessionMemory> {
-  const chatText = sessionMessages
-    .filter((m) => m.role === "user" || m.role === "persona")
-    .map((m) => `[${m.role === "user" ? "用户" : "梁友安"}] ${m.content}`)
-    .join("\n");
-
-  const prompt = buildMemoryExtractionPrompt(chatText, reviewData?.mergedSummary ?? "");
-
-  try {
-    const raw = await callAIWithRetry(
-      [{ role: "system", content: prompt.system }, { role: "user", content: prompt.user }],
-      { temperature: 0.3, maxTokens: 2048 }
-    );
-
-    const parsed = raw as {
-      factsAboutUser?: string[];
-      personaImpression?: string;
-      keyMoments?: string[];
-      relationshipState?: string;
-    };
-
-    return {
-      sessionNum: getSessionNum(session.personaId),
-      date: new Date(session.createdAt).toLocaleDateString("zh-CN"),
-      factsAboutUser: parsed.factsAboutUser ?? [],
-      personaImpression: parsed.personaImpression ?? "",
-      keyMoments: parsed.keyMoments ?? [],
-      relationshipState: parsed.relationshipState ?? "",
-      bankScore: undefined,
-      stage: undefined,
-    };
-  } catch (err) {
-    console.warn("记忆提取失败，使用降级方案:", (err as Error).message);
-    const userMsgs = sessionMessages.filter((m) => m.role === "user").map((m) => m.content);
-    return {
-      sessionNum: getSessionNum(session.personaId),
-      date: new Date(session.createdAt).toLocaleDateString("zh-CN"),
-      factsAboutUser: userMsgs.slice(0, 3),
-      personaImpression: "暂无",
-      keyMoments: [],
-      relationshipState: "未知",
-      bankScore: undefined,
-      stage: undefined,
-    };
-  }
-}
-
-function buildMemoryContext(personaId: string): string {
-  const memories = sessionService.getMemories(personaId);
-  if (memories.length === 0) return "";
-
-  const recent = memories.slice(-3);
-  const older = memories.slice(0, -3);
-  const parts: string[] = [];
-
-  for (const m of recent) {
-    parts.push(`### 第${m.sessionNum}次聊天（${m.date}）`);
-    if (m.factsAboutUser.length > 0) parts.push(`关于用户：${m.factsAboutUser.join("；")}`);
-    if (m.personaImpression) parts.push(`你的印象：${m.personaImpression}`);
-    if (m.keyMoments.length > 0) parts.push(`关键时刻：${m.keyMoments.join("；")}`);
-    if (m.relationshipState) parts.push(`关系状态：${m.relationshipState}`);
-  }
-
-  if (older.length > 0) {
-    parts.push("### 更早的聊天");
-    for (const m of older) {
-      parts.push(`第${m.sessionNum}次（${m.date}）：${m.factsAboutUser.join("；")}`);
-    }
-  }
-
-  return `\n\n## 你的长期记忆（关于这个用户的历次聊天记录）\n⚠️ 以下是你和这个用户之前聊天的真实记忆。你必须基于这些事实来回应，不要编造不存在的记忆。\n${parts.join("\n")}\n⚠️ 重要：你可以自然地引用这些记忆（比如"上次你说过..."），但不要逐字复述，要像真人一样自然地记得。如果用户提到你不知道的事情，坦诚说不记得。`;
-}
-
-// ============================================================
-// API 路由
-// ============================================================
-
-router.get("/api/personas", (_req: Request, res: Response) => {
-  const all = personaService.getAllPersonas().map((p) => ({ ...p, terminated: p.emotionalBankScore < TERMINATION_THRESHOLD }));
-  res.json(all);
+router.get('/api/personas', (_req: Request, res: Response) => {
+  res.json(personaService.getAllPersonas());
 });
 
-router.get("/api/mentors", (_req: Request, res: Response) => {
-  res.json([tongJincheng, gottman]);
-});
+// ============================================================
+// 获取角色的会话列表
+// ============================================================
 
-router.get("/api/personas/:personaId/sessions", (req: Request, res: Response) => {
-  const { personaId } = req.params;
-  const personaSessions = sessionService.getSessionsByPersona(personaId);
-
-  const summaries: SessionSummary[] = personaSessions.map((s) => {
+router.get('/api/personas/:personaId/sessions', (req: Request, res: Response) => {
+  const sessions = sessionService.getSessionsByPersona(req.params.personaId!);
+  const summaries: SessionSummary[] = sessions.map((s) => {
     const msgs = sessionService.getMessages(s.id);
     const lastMsg = msgs[msgs.length - 1];
     return {
@@ -215,241 +41,451 @@ router.get("/api/personas/:personaId/sessions", (req: Request, res: Response) =>
       personaId: s.personaId,
       status: s.status,
       turnCount: s.turnCount,
-      lastMessage: lastMsg?.content.slice(0, 50) ?? "",
+      lastMessage: lastMsg?.content ?? '',
       lastMessageRole: lastMsg?.role,
       createdAt: s.createdAt,
       updatedAt: s.updatedAt,
-      bankScore: s.sessionBankScore,
     };
   });
   res.json(summaries);
 });
 
-router.get("/api/sessions/:id", (req: Request, res: Response) => {
-  const session = sessionService.getSession(req.params.id!);
-  if (!session) { res.status(404).json({ error: "会话不存在" }); return; }
-  res.json(session);
-});
+// ============================================================
+// 创建新会话
+// ============================================================
 
-router.post("/api/sessions", (req: Request, res: Response) => {
-  const { personaId } = req.body as { personaId: string };
+router.post('/api/sessions', (req: Request, res: Response) => {
+  const { personaId } = req.body;
+  if (!personaId) { res.status(400).json({ error: '缺少 personaId' }); return; }
+
   const persona = personaService.getPersona(personaId);
-  if (!persona) {
-    res.status(400).json({ error: "未知的角色 ID" }); return;
-  }
-  if (persona.emotionalBankScore < TERMINATION_THRESHOLD) {
-    res.status(403).json({ error: "RELATIONSHIP_TERMINATED", message: "关系已终止，该角色不愿再与你聊天。可以使用分身重新开始。" }); return;
-  }
-  const num = getSessionNum(personaId) + 1;
+  if (!persona) { res.status(404).json({ error: '角色不存在' }); return; }
+
   const session: TrainingSession = {
-    id: randomUUID(), personaId,
-    goal: "练习与独立职业女性的自然聊天",
-    status: "active", currentState: { ...persona.initialState },
-    turnCount: 0, createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(),
+    id: randomUUID(),
+    personaId,
+    goal: '',
+    status: 'active',
+    turnCount: 0,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
   };
   sessionService.saveSession(session);
-
-  // 检测已读不回：如果该 persona 有 active 的旧会话，且最后一条是 persona 发的
-  const existingActiveSessions = sessionService.getSessionsByPersona(personaId)
-    .filter((s) => s.status === "active" && s.id !== session.id);
-  for (const oldSession of existingActiveSessions) {
-    const oldMsgs = sessionService.getMessages(oldSession.id);
-    const lastOldMsg = oldMsgs[oldMsgs.length - 1];
-    if (lastOldMsg && lastOldMsg.role === "persona") {
-      persona.emotionalBankScore -= 10;
-      oldSession.status = "reviewed";
-      oldSession.updatedAt = new Date().toISOString();
-      addSystemMsg(oldSession.id, "你没有回复对方的消息就离开了。对方感到被忽视。");
-      sessionService.saveSession(oldSession);
-      personaService.savePersona(persona);
-      console.log(`👻 已读不回检测：扣分 -10，累积 ${persona.emotionalBankScore}`);
-    }
-  }
-
-  addSystemMsg(session.id, `开始第${num}次聊天`);
-  sessionService.saveSession(session);
   res.json(session);
 });
 
-router.post("/api/sessions/:id/messages", async (req: Request, res: Response) => {
+// ============================================================
+// 获取会话消息 / 单个会话
+// ============================================================
+
+router.get('/api/sessions/:id/messages', (req: Request, res: Response) => {
+  res.json(sessionService.getMessages(req.params.id!));
+});
+
+router.get('/api/sessions/:id', (req: Request, res: Response) => {
+  const session = sessionService.getSession(req.params.id!);
+  if (!session) { res.status(404).json({ error: '会话不存在' }); return; }
+  res.json(session);
+});
+
+// ============================================================
+// 发送消息（v3.0简化版）
+// ============================================================
+
+router.post('/api/sessions/:id/messages', async (req: Request, res: Response) => {
   const { id } = req.params;
-  const { content } = req.body as { content: string };
+  const { content } = req.body;
+  if (!content) { res.status(400).json({ error: '消息内容不能为空' }); return; }
+
   const session = sessionService.getSession(id!);
-  if (!session) { res.status(404).json({ error: "会话不存在" }); return; }
-  if (session.status === "reviewed") { res.status(400).json({ error: "该会话已结束" }); return; }
+  if (!session) { res.status(404).json({ error: '会话不存在' }); return; }
+  if (session.status !== 'active') { res.status(400).json({ error: '该会话已结束' }); return; }
 
-  // 添加用户消息
-  const userMessage = sessionService.addMessage(id!, "user", content);
+  const persona = personaService.getPersona(session.personaId);
+  if (!persona) { res.status(404).json({ error: '角色不存在' }); return; }
 
-  // 构建聊天历史
-  const sessionMessages = sessionService.getMessages(id!);
-  const chatHistory = sessionMessages
-    .filter((m) => m.role === "user" || m.role === "persona")
-    .map((m) => ({ role: m.role === "user" ? "user" as const : "assistant" as const, content: m.content }));
+  const growthRecord = growthService.getOrCreateGrowthRecord(session.personaId);
+  const temperature = growthRecord.relationship_state.current_temperature;
+  const stage = growthRecord.relationship_state.current_stage;
 
-  // 加载长期记忆
-  const memoryContext = buildMemoryContext(session.personaId);
+  const userMsg = sessionService.addMessage(id!, 'user', content);
+  const allMessages = sessionService.getMessages(id!);
 
   try {
-    const persona = personaService.getPersona(session.personaId) ?? liangYouan;
-    const { system, messages: msgs } = buildChatPrompt(persona, chatHistory, persona.emotionalBankScore);
-    const fullSystem = system + memoryContext;
-
+    const prompt = buildChatPrompt(allMessages, persona, temperature, stage);
     const raw = await callAIWithRetry(
-      [{ role: "system", content: fullSystem }, ...msgs],
-      { temperature: 0.8, maxTokens: 1024 }
+      [
+        { role: 'system', content: prompt.system },
+        { role: 'user', content: prompt.user },
+      ],
+      { temperature: 0.8, maxTokens: 1024 },
     );
     const result = parseChatModelResult(raw);
+    const replyMsg = sessionService.addMessage(id!, 'persona', result.reply);
 
-    for (const key of Object.keys(result.state_delta) as Array<keyof typeof result.state_delta>) {
-      session.currentState[key] = Math.max(0, Math.min(100, session.currentState[key] + result.state_delta[key]));
-    }
-
-    const personaMessage = sessionService.addMessage(id!, "persona", result.reply);
     session.turnCount += 1;
     session.updatedAt = new Date().toISOString();
-
     sessionService.saveSession(session);
 
-    res.json({
-      userMessage,
-      message: personaMessage,
-      stateReason: result.state_reason,
-      boundaryFlags: result.boundary_flags,
-    });
+    res.json({ userMessage: userMsg, message: replyMsg });
   } catch (err) {
-    console.error("AI 调用失败:", err);
-    res.status(500).json({ error: "AI 回复失败，请重试", detail: err instanceof Error ? err.message : String(err) });
+    console.error('AI 回复失败:', err);
+    res.status(500).json({ error: 'AI 回复失败，请重试', detail: err instanceof Error ? err.message : String(err) });
   }
 });
 
-router.get("/api/sessions/:id/messages", (req: Request, res: Response) => {
-  const session = sessionService.getSession(req.params.id!);
-  if (!session) { res.status(404).json({ error: "会话不存在" }); return; }
-  const sessionMessages = sessionService.getMessages(req.params.id!);
-  res.json(sessionMessages);
-});
+// ============================================================
+// 运行复盘（v3.0镜子模式 M0+M1+M2）
+// ============================================================
 
-router.post("/api/sessions/:id/review", async (req: Request, res: Response) => {
+router.post('/api/sessions/:id/review', async (req: Request, res: Response) => {
   const { id } = req.params;
   const session = sessionService.getSession(id!);
-  if (!session) { res.status(404).json({ error: "会话不存在" }); return; }
+  if (!session) { res.status(404).json({ error: '会话不存在' }); return; }
 
-  const sessionMessages = sessionService.getMessages(id!);
-  const chatMsgs = sessionMessages.filter((m) => m.role === "user" || m.role === "persona");
-  if (chatMsgs.length < 2) { res.status(400).json({ error: "聊天太少，无法复盘" }); return; }
+  const persona = personaService.getPersona(session.personaId);
+  if (!persona) { res.status(404).json({ error: '角色不存在' }); return; }
+
+  const chatMsgs = sessionService.getMessages(id!);
+  if (chatMsgs.length < 2) { res.status(400).json({ error: '对话太短，无法复盘' }); return; }
+
+  // CHG-2：获取上次未追踪的行动锚点，传给 M2 prompt
+  const previousAnchor = growthService.getPreviousUntrackedAnchor(session.personaId);
 
   try {
-    console.log(`\n🔄 开始三导师复盘（${chatMsgs.length} 条消息）`);
-    const persona = personaService.getPersona(session.personaId) ?? liangYouan;
+    const report = await runMirrorDebrief(chatMsgs, persona, id!, previousAnchor);
 
-    // 计算行为指标
-    const behaviorMetrics = computeBehaviorMetrics(session.personaId, id!, sessionMessages);
-    const behaviorContext = formatBehaviorContext(behaviorMetrics);
-    console.log(`📋 行为指标：${behaviorMetrics.turnCount}轮，频率调节${behaviorMetrics.frequencyDelta >= 0 ? "+" : ""}${behaviorMetrics.frequencyDelta}，已读不回-${behaviorMetrics.ghostPenalty}`);
-
-    const report = await runDualReview(chatMsgs, persona, tongJincheng, gottman, id!, persona.emotionalBankScore, behaviorContext, behaviorMetrics);
-    session.status = "reviewed";
-    session.updatedAt = new Date().toISOString();
-
-    // 累积情感账户分数
-    persona.emotionalBankScore += report.bankScore;
-    session.sessionBankScore = report.bankScore;
-    console.log("情感账户：本轮 " + (report.bankScore >= 0 ? "+" : "") + report.bankScore + "，累积 " + persona.emotionalBankScore + "（" + report.relationshipStage + "）");
-
-    // 检查关系终止
-    if (persona.emotionalBankScore < TERMINATION_THRESHOLD) {
-      addSystemMsg(id!, "关系已终止。该角色不愿再与你聊天。可以使用分身重新开始。");
-    }
-
-    addSystemMsg(id!, "复盘完成");
-
-    // 保存到存储
-    sessionService.saveReview(id!, report);
-    sessionService.saveSession(session);
+    persona.communication.avg_message_length_baseline = updateBaseline(
+      persona.communication.avg_message_length_baseline,
+      report.m0.stats.avg_her_length,
+    );
+    persona.meta.session_count += 1;
+    persona.meta.last_updated = new Date().toISOString();
     personaService.savePersona(persona);
 
-    // 提取结构化记忆
-    console.log("🧠 提取长期记忆...");
-    const memory = await extractSessionMemory(session, sessionMessages, report);
-    sessionService.saveMemory(session.personaId, memory);
-    console.log(`✅ 记忆提取完成（${memory.factsAboutUser.length} 条事实）`);
+    sessionService.saveReview(id!, report);
 
-    res.json(report);
+    const debriefSession: DebriefSession = {
+      session_id: id!,
+      date: new Date().toISOString().split('T')[0]!,
+      key_moments: report.m1.key_moments,
+      action_anchor: null,
+      resonance_delta: 0,
+      km_summary: report.m1.km_summary,
+    };
+    sessionService.saveDebriefSession(id!, debriefSession);
+
+    session.status = 'reviewed';
+    session.updatedAt = new Date().toISOString();
+    sessionService.saveSession(session);
+
+    res.json({ ...report, previous_anchor: previousAnchor });
   } catch (err) {
-    console.error("复盘失败:", err);
-    res.status(500).json({ error: "复盘生成失败，请重试", detail: err instanceof Error ? err.message : String(err) });
+    console.error('复盘失败:', err);
+    res.status(500).json({ error: '复盘生成失败，请重试', detail: err instanceof Error ? err.message : String(err) });
   }
 });
 
-router.get("/api/sessions/:id/review", (req: Request, res: Response) => {
+// ============================================================
+// M3：保存用户反思答案
+// ============================================================
+
+router.post('/api/sessions/:id/debrief/answer', (req: Request, res: Response) => {
+  const { id } = req.params;
+  const { km_id, answer } = req.body;
+  if (km_id === undefined || !answer) { res.status(400).json({ error: '缺少 km_id 或 answer' }); return; }
+
+  const debrief = sessionService.getDebriefSession(id!);
+  if (!debrief) { res.status(404).json({ error: '复盘记录不存在' }); return; }
+
+  const km = debrief.key_moments.find((k) => k.km_id === km_id);
+  if (!km) { res.status(404).json({ error: '关键时刻不存在' }); return; }
+
+  km.user_answer = answer;
+  km.answered = true;
+  sessionService.saveDebriefSession(id!, debrief);
+  res.json({ success: true });
+});
+
+// ============================================================
+// M3：跳过关键时刻
+// ============================================================
+
+router.post('/api/sessions/:id/debrief/skip', (req: Request, res: Response) => {
+  const { id } = req.params;
+  const { km_id } = req.body;
+  if (km_id === undefined) { res.status(400).json({ error: '缺少 km_id' }); return; }
+
+  const debrief = sessionService.getDebriefSession(id!);
+  if (!debrief) { res.status(404).json({ error: '复盘记录不存在' }); return; }
+
+  const km = debrief.key_moments.find((k) => k.km_id === km_id);
+  if (!km) { res.status(404).json({ error: '关键时刻不存在' }); return; }
+
+  km.answered = false;
+  km.user_answer = null;
+  sessionService.saveDebriefSession(id!, debrief);
+  res.json({ success: true });
+});
+
+// ============================================================
+// CHG-1：M2.5 行动锚点 — 保存
+// ============================================================
+
+router.post('/api/sessions/:id/debrief/anchor', (req: Request, res: Response) => {
+  const { id } = req.params;
+  const { content } = req.body;
+
+  const debrief = sessionService.getDebriefSession(id!);
+  if (!debrief) { res.status(404).json({ error: '复盘记录不存在' }); return; }
+
+  if (content && content.trim()) {
+    debrief.action_anchor = {
+      content: content.trim(),
+      created_at: new Date().toISOString(),
+      tracked: false,
+      outcome: null,
+    };
+  } else {
+    debrief.action_anchor = null;
+  }
+
+  sessionService.saveDebriefSession(id!, debrief);
+  res.json({ success: true, action_anchor: debrief.action_anchor });
+});
+
+// ============================================================
+// CHG-2：回溯追踪 — 获取上次未追踪的锚点
+// ============================================================
+
+router.get('/api/sessions/:id/debrief/previous-anchor', (req: Request, res: Response) => {
+  const { id } = req.params;
+  const session = sessionService.getSession(id!);
+  if (!session) { res.status(404).json({ error: '会话不存在' }); return; }
+
+  const anchor = growthService.getPreviousUntrackedAnchor(session.personaId);
+  res.json({ anchor });
+});
+
+// ============================================================
+// CHG-2：回溯追踪 — 填写结果
+// ============================================================
+
+router.post('/api/sessions/:id/debrief/anchor/track', (req: Request, res: Response) => {
+  const { id } = req.params;
+  const { outcome } = req.body;
+  const session = sessionService.getSession(id!);
+  if (!session) { res.status(404).json({ error: '会话不存在' }); return; }
+
+  const success = growthService.trackPreviousAnchor(session.personaId, outcome || '未尝试');
+  res.json({ success });
+});
+
+// ============================================================
+// 复盘完成：M4模式发现 + 隐性账户更新
+// ============================================================
+
+router.post('/api/sessions/:id/debrief/complete', async (req: Request, res: Response) => {
+  const { id } = req.params;
+  const session = sessionService.getSession(id!);
+  if (!session) { res.status(404).json({ error: '会话不存在' }); return; }
+
+  const persona = personaService.getPersona(session.personaId);
+  if (!persona) { res.status(404).json({ error: '角色不存在' }); return; }
+
+  const debrief = sessionService.getDebriefSession(id!);
+  if (!debrief) { res.status(404).json({ error: '复盘记录不存在' }); return; }
+
+  const growthRecord = growthService.getOrCreateGrowthRecord(session.personaId);
+
+  // M4：模式发现（条件触发）
+  if (growthRecord.growth.pattern_discovery_unlocked) {
+    const patterns = aggregatePatterns(growthRecord.growth.raw_reflections, debrief);
+    if (patterns.patterns.length > 0) {
+      for (const pattern of patterns.patterns) {
+        try {
+          const prompt = buildAggregateSocratesPrompt(
+            pattern.km_label,
+            pattern.items.map((i) => ({ date: i.session_date, answer: i.user_answer })),
+          );
+          const raw = await callAIWithRetry(
+            [{ role: 'system', content: prompt.system }, { role: 'user', content: prompt.user }],
+            { temperature: 0.7, maxTokens: 256 },
+          );
+          if (typeof raw === 'string') {
+            patterns.aggregate_question = raw.trim();
+          }
+        } catch (err) {
+          console.warn('M4聚合问题生成失败:', err);
+        }
+      }
+      debrief.pattern_discovery = patterns;
+    }
+  }
+
+  // 隐性更新（v3.1：resonance 字段）
+  growthService.updateAfterDebrief(
+    session.personaId,
+    debrief,
+    persona.communication.avg_message_length_baseline,
+    0,
+  );
+
+  sessionService.saveDebriefSession(id!, debrief);
+  addSystemMsg(id!, '已存档。');
+  res.json({ success: true, pattern_discovery: debrief.pattern_discovery });
+});
+
+// ============================================================
+// 获取复盘报告/存档
+// ============================================================
+
+router.get('/api/sessions/:id/review', (req: Request, res: Response) => {
   const review = sessionService.getReview(req.params.id!);
-  if (!review) { res.status(404).json({ error: "该会话还没有复盘" }); return; }
+  if (!review) { res.status(404).json({ error: '该会话还没有复盘' }); return; }
   res.json(review);
 });
 
-// 删除会话（永久删除）
-router.delete("/api/sessions/:id", (req: Request, res: Response) => {
+router.get('/api/sessions/:id/debrief', (req: Request, res: Response) => {
+  const debrief = sessionService.getDebriefSession(req.params.id!);
+  if (!debrief) { res.status(404).json({ error: '该会话还没有复盘' }); return; }
+  res.json(debrief);
+});
+
+// ============================================================
+// 删除会话/分身/复制角色
+// ============================================================
+
+router.delete('/api/sessions/:id', (req: Request, res: Response) => {
   const { id } = req.params;
   const session = sessionService.getSession(id!);
-  if (!session) { res.status(404).json({ error: "会话不存在" }); return; }
-
-  // Reverse emotional bank score if session was reviewed
-  const persona = personaService.getPersona(session.personaId);
-  let scoreChanged = false;
-  if (persona && session.sessionBankScore) {
-    persona.emotionalBankScore -= session.sessionBankScore;
-    scoreChanged = true;
-    console.log("Score reversed: " + (session.sessionBankScore >= 0 ? "-" : "+") + Math.abs(session.sessionBankScore) + ", total: " + persona.emotionalBankScore);
-  }
-
-  // Restore ghost penalty if this session triggered one
-  if (persona) {
-    const laterSessions = sessionService.getSessionsByPersona(session.personaId)
-      .filter((s) => s.id !== id && new Date(s.createdAt).getTime() > new Date(session.createdAt).getTime());
-    for (const laterSession of laterSessions) {
-      const laterMsgs = sessionService.getMessages(laterSession.id);
-      const hasGhostMsg = laterMsgs.some((m) => m.role === "system" && m.content.includes("没有回复对方的消息"));
-      if (hasGhostMsg) {
-        persona.emotionalBankScore += 10;
-        scoreChanged = true;
-        console.log("Ghost penalty restored: +10, total: " + persona.emotionalBankScore);
-        break;
-      }
-    }
-  }
-
-  // Delete from DB (cascading deletes handle messages, reviews, memories)
+  if (!session) { res.status(404).json({ error: '会话不存在' }); return; }
   sessionService.deleteSession(id!);
-
-  if (persona && scoreChanged) {
-    personaService.savePersona(persona);
-  }
-  console.log("会话已删除：" + id);
+  console.log('会话已删除：' + id);
   res.json({ success: true });
 });
 
-// 删除分身（只能删除分身，不能删除原版）
-router.delete("/api/personas/:id", (req: Request, res: Response) => {
+router.delete('/api/personas/:id', (req: Request, res: Response) => {
   const { id } = req.params;
-  if (!id.includes("-clone-")) { res.status(400).json({ error: "不能删除原版角色" }); return; }
+  if (!id.includes('-clone-')) { res.status(400).json({ error: '不能删除原版角色' }); return; }
   const persona = personaService.getPersona(id);
-  if (!persona) { res.status(404).json({ error: "角色不存在" }); return; }
-
-  // Delete persona (cascading deletes handle sessions, messages, reviews, memories)
+  if (!persona) { res.status(404).json({ error: '角色不存在' }); return; }
   personaService.deletePersona(id);
-
-  console.log("分身已删除：" + id);
+  console.log('分身已删除：' + id);
   res.json({ success: true });
 });
 
-// 分身：复制角色，重置情感账户分数
-router.post("/api/personas/:id/clone", (req: Request, res: Response) => {
+router.post('/api/personas/:id/clone', (req: Request, res: Response) => {
   const { id } = req.params;
   const clone = personaService.clonePersona(id);
-  if (!clone) { res.status(404).json({ error: "角色不存在" }); return; }
-  console.log("分身创建：" + clone.id);
+  if (!clone) { res.status(404).json({ error: '角色不存在' }); return; }
+  console.log('分身创建：' + clone.id);
   res.json(clone);
 });
 
+// ============================================================
+// 辅助：M4模式聚合
+// ============================================================
+
+const KM_LABELS: Record<string, string> = {
+  KM_A: '她回复特别长', KM_B: '她回复特别短', KM_C: '你分享了自己',
+  KM_D: '你连续追问未分享', KM_E: '她主动发起新话题', KM_F: '对话中断',
+  ACTION_ANCHOR: '行动锚点',
+};
+
+function extractKmContext(km: import('../shared/types').KeyMoment): PatternContextEntry[] {
+  const triggerIdx = km.context.findIndex((c) => c.content.includes('[关键节点]'));
+  if (triggerIdx !== -1) {
+    const start = Math.max(0, triggerIdx - 1);
+    const end = Math.min(km.context.length - 1, triggerIdx + 1);
+    return km.context.slice(start, end + 1).map((c) => ({
+      speaker: c.speaker,
+      content: c.content.replace(' [关键节点]', ''),
+    }));
+  }
+  const trigIdx = km.context.findIndex((c) => c.index === km.trigger_index);
+  if (trigIdx !== -1) {
+    const start = Math.max(0, trigIdx - 1);
+    const end = Math.min(km.context.length - 1, trigIdx + 1);
+    return km.context.slice(start, end + 1).map((c) => ({
+      speaker: c.speaker,
+      content: c.content,
+    }));
+  }
+  return km.context.slice(0, 3).map((c) => ({ speaker: c.speaker, content: c.content }));
+}
+
+function aggregatePatterns(
+  rawReflections: { session_date: string; km_type: KMType | 'ACTION_ANCHOR'; question: string; answer: string; context?: PatternContextEntry[]; outcome?: string | null }[],
+  currentDebrief: DebriefSession,
+): PatternDiscovery {
+  const MIN_FREQUENCY = 3;
+  const MAX_PATTERNS = 3;
+
+  const allReflections: typeof rawReflections = [...rawReflections];
+  for (const km of currentDebrief.key_moments) {
+    if (km.answered && km.user_answer) {
+      allReflections.push({
+        session_date: currentDebrief.date,
+        km_type: km.type,
+        question: km.system_question,
+        answer: km.user_answer,
+        context: extractKmContext(km),
+      });
+    }
+  }
+
+  const groups: Record<string, typeof allReflections> = {};
+  for (const r of allReflections) {
+    if (!groups[r.km_type]) groups[r.km_type] = [];
+    groups[r.km_type]!.push(r);
+  }
+
+  const patterns = Object.entries(groups)
+    .filter(([_, items]) => items.length >= MIN_FREQUENCY)
+    .map(([kmType, items]) => ({
+      km_type: kmType as KMType,
+      km_label: KM_LABELS[kmType] ?? kmType,
+      frequency: items.length,
+      items: items.map((i) => ({
+        session_date: i.session_date,
+        user_answer: i.answer,
+        question: i.question,
+        context: i.context,
+      })),
+    }))
+    .sort((a, b) => b.frequency - a.frequency)
+    .slice(0, MAX_PATTERNS);
+
+  return { patterns };
+}
+
 export default router;
+// ============================================================
+// 获取角色的关系状态（用于聊天界面）
+// ============================================================
+
+router.get('/api/personas/:personaId/growth', (req: Request, res: Response) => {
+  const record = growthService.getGrowthRecord(req.params.personaId!);
+  if (!record) {
+    res.json({
+      relationship_state: {
+        current_stage: '试探期',
+        resonance_score: 0,
+        resonance_level: '中性',
+        current_temperature: 'T3',
+      },
+    });
+    return;
+  }
+  res.json({ relationship_state: record.relationship_state });
+});
+
+
+// 获取最后一个行动锚点（不管追踪状态，用于聊天界面顶部显示）
+router.get('/api/sessions/:id/last-anchor', (req: Request, res: Response) => {
+  const session = sessionService.getSession(req.params.id!);
+  if (!session) { res.status(404).json({ error: '会话不存在' }); return; }
+  const anchor = growthService.getLastAnchor(session.personaId);
+  res.json({ anchor });
+});

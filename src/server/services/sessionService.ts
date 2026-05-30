@@ -1,46 +1,32 @@
-import { randomUUID } from "crypto";
-import db from "../db";
-import type { TrainingSession, ChatMessage, DualReviewReport } from "../../shared/types";
-
-type SessionMemory = {
-  sessionNum: number;
-  date: string;
-  factsAboutUser: string[];
-  personaImpression: string;
-  keyMoments: string[];
-  relationshipState: string;
-  bankScore?: number;
-  stage?: string;
-};
+import { randomUUID } from 'crypto';
+import db from '../db';
+import type { TrainingSession, ChatMessage, DebriefReport, DebriefSession } from '../../shared/types';
 
 // ============================================================
 // Sessions
 // ============================================================
 
 export function getSessionsByPersona(personaId: string): TrainingSession[] {
-  const rows = db.prepare("SELECT data FROM sessions WHERE persona_id = ? ORDER BY created_at DESC").all(personaId) as { data: string }[];
+  const rows = db.prepare('SELECT data FROM sessions WHERE persona_id = ? ORDER BY created_at DESC').all(personaId) as { data: string }[];
   return rows.map((r) => JSON.parse(r.data) as TrainingSession);
 }
 
 export function getAllSessions(): TrainingSession[] {
-  const rows = db.prepare("SELECT data FROM sessions ORDER BY created_at DESC").all() as { data: string }[];
+  const rows = db.prepare('SELECT data FROM sessions ORDER BY created_at DESC').all() as { data: string }[];
   return rows.map((r) => JSON.parse(r.data) as TrainingSession);
 }
 
 export function getSession(id: string): TrainingSession | null {
-  const row = db.prepare("SELECT data FROM sessions WHERE id = ?").get(id) as { data: string } | undefined;
+  const row = db.prepare('SELECT data FROM sessions WHERE id = ?').get(id) as { data: string } | undefined;
   return row ? JSON.parse(row.data) as TrainingSession : null;
 }
 
 export function saveSession(session: TrainingSession): void {
-  db.prepare(`
-    INSERT INTO sessions (id, persona_id, data, updated_at) VALUES (?, ?, ?, datetime('now'))
-    ON CONFLICT(id) DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at
-  `).run(session.id, session.personaId, JSON.stringify(session));
+  db.prepare('INSERT INTO sessions (id, persona_id, data, updated_at) VALUES (?, ?, ?, datetime(\'now\')) ON CONFLICT(id) DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at').run(session.id, session.personaId, JSON.stringify(session));
 }
 
 export function deleteSession(id: string): boolean {
-  const result = db.prepare("DELETE FROM sessions WHERE id = ?").run(id);
+  const result = db.prepare('DELETE FROM sessions WHERE id = ?').run(id);
   return result.changes > 0;
 }
 
@@ -49,13 +35,13 @@ export function deleteSession(id: string): boolean {
 // ============================================================
 
 export function getMessages(sessionId: string): ChatMessage[] {
-  const rows = db.prepare("SELECT id, session_id as sessionId, role, content, created_at as createdAt FROM messages WHERE session_id = ? ORDER BY rowid").all(sessionId) as ChatMessage[];
+  const rows = db.prepare('SELECT id, session_id as sessionId, role, content, created_at as createdAt FROM messages WHERE session_id = ? ORDER BY rowid').all(sessionId) as ChatMessage[];
   return rows;
 }
 
 export function saveMessages(sessionId: string, messages: ChatMessage[]): void {
-  const deleteStmt = db.prepare("DELETE FROM messages WHERE session_id = ?");
-  const insertStmt = db.prepare("INSERT INTO messages (id, session_id, role, content, created_at) VALUES (?, ?, ?, ?, ?)");
+  const deleteStmt = db.prepare('DELETE FROM messages WHERE session_id = ?');
+  const insertStmt = db.prepare('INSERT INTO messages (id, session_id, role, content, created_at) VALUES (?, ?, ?, ?, ?)');
 
   const tx = db.transaction(() => {
     deleteStmt.run(sessionId);
@@ -66,7 +52,7 @@ export function saveMessages(sessionId: string, messages: ChatMessage[]): void {
   tx();
 }
 
-export function addMessage(sessionId: string, role: ChatMessage["role"], content: string): ChatMessage {
+export function addMessage(sessionId: string, role: ChatMessage['role'], content: string): ChatMessage {
   const msg: ChatMessage = {
     id: randomUUID(),
     sessionId,
@@ -74,37 +60,34 @@ export function addMessage(sessionId: string, role: ChatMessage["role"], content
     content,
     createdAt: new Date().toISOString(),
   };
-  db.prepare("INSERT INTO messages (id, session_id, role, content, created_at) VALUES (?, ?, ?, ?, ?)").run(
+  db.prepare('INSERT INTO messages (id, session_id, role, content, created_at) VALUES (?, ?, ?, ?, ?)').run(
     msg.id, sessionId, role, content, msg.createdAt,
   );
   return msg;
 }
 
 // ============================================================
-// Reviews
+// Reviews（v3.0：DebriefReport）
 // ============================================================
 
-export function getReview(sessionId: string): DualReviewReport | null {
-  const row = db.prepare("SELECT data FROM reviews WHERE session_id = ?").get(sessionId) as { data: string } | undefined;
-  return row ? JSON.parse(row.data) as DualReviewReport : null;
+export function getReview(sessionId: string): DebriefReport | null {
+  const row = db.prepare('SELECT data FROM reviews WHERE session_id = ?').get(sessionId) as { data: string } | undefined;
+  return row ? JSON.parse(row.data) as DebriefReport : null;
 }
 
-export function saveReview(sessionId: string, review: DualReviewReport): void {
-  db.prepare(`
-    INSERT INTO reviews (session_id, data, created_at) VALUES (?, ?, datetime('now'))
-    ON CONFLICT(session_id) DO UPDATE SET data = excluded.data
-  `).run(sessionId, JSON.stringify(review));
+export function saveReview(sessionId: string, review: DebriefReport): void {
+  db.prepare('INSERT INTO reviews (session_id, data, created_at) VALUES (?, ?, datetime(\'now\')) ON CONFLICT(session_id) DO UPDATE SET data = excluded.data').run(sessionId, JSON.stringify(review));
 }
 
 // ============================================================
-// Persona Memories
+// Debrief Sessions（v3.0：存档用）
 // ============================================================
 
-export function getMemories(personaId: string): SessionMemory[] {
-  const rows = db.prepare("SELECT data FROM persona_memories WHERE persona_id = ? ORDER BY rowid").all(personaId) as { data: string }[];
-  return rows.map((r) => JSON.parse(r.data) as SessionMemory);
+export function getDebriefSession(sessionId: string): DebriefSession | null {
+  const row = db.prepare('SELECT data FROM debrief_sessions WHERE session_id = ?').get(sessionId) as { data: string } | undefined;
+  return row ? JSON.parse(row.data) as DebriefSession : null;
 }
 
-export function saveMemory(personaId: string, memory: SessionMemory): void {
-  db.prepare("INSERT INTO persona_memories (persona_id, data) VALUES (?, ?)").run(personaId, JSON.stringify(memory));
+export function saveDebriefSession(sessionId: string, debrief: DebriefSession): void {
+  db.prepare('INSERT INTO debrief_sessions (session_id, data, created_at) VALUES (?, ?, datetime(\'now\')) ON CONFLICT(session_id) DO UPDATE SET data = excluded.data').run(sessionId, JSON.stringify(debrief));
 }

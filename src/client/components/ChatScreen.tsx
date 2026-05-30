@@ -1,28 +1,42 @@
-﻿import { useState, useRef, useEffect } from "react";
-import type { TrainingSession, ChatMessage } from "../../shared/types";
-import { client } from "../api";
+import { useState, useRef, useEffect } from 'react';
+import type { TrainingSession, ChatMessage, ActionAnchor } from '../../shared/types';
+import { client } from '../api';
 
 interface Props {
   session: TrainingSession;
   hasReview: boolean;
+  stage: string;
+  temperature: string;
   onEndAndReview: (sessionId: string) => void;
   onViewReview: () => void;
   onBack: () => void;
 }
 
+const STAGE_CONTEXT: Record<string, string> = {
+  '试探期': '你们刚认识不久，还在互相了解。保持自然就好。',
+  '升温期': '你们聊过几次了，关系在慢慢升温。可以适当多分享一些。',
+  '暧昧期': '你们之间有了些默契，聊天越来越自然。',
+  '突破期': '你们的关系已经很近了。',
+};
+
 function formatTime(iso: string): string {
-  return new Date(iso).toLocaleTimeString("zh-CN", { hour: "2-digit", minute: "2-digit" });
+  return new Date(iso).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
 }
 
-export function ChatScreen({ session, hasReview, onEndAndReview, onViewReview, onBack }: Props) {
+export function ChatScreen({ session, hasReview, stage, temperature, onEndAndReview, onViewReview, onBack }: Props) {
   const [msgs, setMsgs] = useState<ChatMessage[]>([]);
-  const [input, setInput] = useState("");
+  const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [reviewing, setReviewing] = useState(false);
+  const [prevAnchor, setPrevAnchor] = useState<ActionAnchor | null>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     client.getMessages(session.id).then(setMsgs).catch(() => {});
+    // 获取上次行动锚点（不管追踪状态）
+    client.getLastAnchor(session.id).then((r) => {
+      if (r.anchor) setPrevAnchor(r.anchor);
+    }).catch(() => {});
   }, [session.id]);
 
   useEffect(() => { if (listRef.current) listRef.current.scrollTop = listRef.current.scrollHeight; }, [msgs]);
@@ -30,49 +44,56 @@ export function ChatScreen({ session, hasReview, onEndAndReview, onViewReview, o
   const handleSend = async () => {
     if (!input.trim() || loading) return;
     const text = input.trim();
-    setInput("");
+    setInput('');
     setLoading(true);
     const now = new Date().toISOString();
-    setMsgs((prev) => [...prev, { id: "temp-" + Date.now(), sessionId: session.id, role: "user", content: text, createdAt: now }]);
+    setMsgs((prev) => [...prev, { id: 'temp-' + Date.now(), sessionId: session.id, role: 'user', content: text, createdAt: now }]);
     try {
       const res = await client.sendMessage(session.id, text);
-      setMsgs((prev) => [...prev.filter((m) => !m.id.startsWith("temp-")), res.userMessage, res.message]);
+      setMsgs((prev) => [...prev.filter((m) => !m.id.startsWith('temp-')), res.userMessage, res.message]);
     } catch (e) {
-      setMsgs((prev) => prev.filter((m) => !m.id.startsWith("temp-")));
+      setMsgs((prev) => prev.filter((m) => !m.id.startsWith('temp-')));
       setInput(text);
-      alert("发送失败：" + (e as Error).message);
+      alert('发送失败：' + (e as Error).message);
     } finally { setLoading(false); }
   };
 
   const handleEnd = async () => { setReviewing(true); await onEndAndReview(session.id); };
-  const isActive = session.status === "active";
+  const isActive = session.status === 'active';
+
+  // 动态 context strip
+  const contextText = prevAnchor
+    ? '上次你说想试试：' + prevAnchor.content
+    : (STAGE_CONTEXT[stage] ?? STAGE_CONTEXT['试探期']);
 
   return (
     <div className="phone-shell">
       <div className="chat-header">
-        <button onClick={onBack} className="back-btn">← 返回</button>
-        <div><h1>梁友安</h1><p>27岁 · 体育经纪人</p></div>
+        <button onClick={onBack} className="back-btn">&larr; 返回</button>
+        <div><h1>梁友安</h1><p>27岁 &middot; 体育经纪人</p></div>
         <div className="header-actions">
           {hasReview && (
             <button onClick={onViewReview} className="view-review-btn">📊 查看复盘</button>
           )}
           {isActive && (
             <button onClick={handleEnd} className="end-btn" disabled={reviewing}>
-              {reviewing ? "复盘中..." : "结束并复盘"}
+              {reviewing ? '复盘中...' : '结束并复盘'}
             </button>
           )}
           {!isActive && !hasReview && <span className="reviewed-badge">已结束</span>}
         </div>
       </div>
-      <div className="context-strip">💡 你们在一个朋友聚会上认识，加了微信，偶尔聊聊。目前算是普通朋友。</div>
+      <div className={'context-strip' + (prevAnchor ? ' context-anchor' : '')}>
+        {prevAnchor ? '🎯 ' : '💡 '}{contextText}
+      </div>
       <div className="message-list" ref={listRef}>
         {msgs.length === 0 && <div className="empty-hint">开始聊天吧！像在微信里一样自然地说就好。</div>}
         {msgs.map((m) => {
-          if (m.role === "system") {
+          if (m.role === 'system') {
             return <div key={m.id} className="system-event">{m.content}</div>;
           }
           return (
-            <div key={m.id} className={`message-row ${m.role === "user" ? "mine" : ""}`}>
+            <div key={m.id} className={'message-row ' + (m.role === 'user' ? 'mine' : '')}>
               <div className="bubble">
                 {m.content}
                 <span className="msg-time">{formatTime(m.createdAt)}</span>
@@ -84,7 +105,7 @@ export function ChatScreen({ session, hasReview, onEndAndReview, onViewReview, o
       </div>
       {isActive && (
         <div className="composer">
-          <input value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => e.key === "Enter" && handleSend()} placeholder="输入消息..." disabled={loading} />
+          <input value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleSend()} placeholder="输入消息..." disabled={loading} />
           <button onClick={handleSend} disabled={loading || !input.trim()}>发送</button>
         </div>
       )}

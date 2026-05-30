@@ -1,18 +1,16 @@
-import { create } from "zustand";
-import type { DistilledPersona, TrainingSession, SessionSummary, DualReviewReport } from "../../shared/types";
-import { client } from "../api";
+import { create } from 'zustand';
+import type { DistilledPersona, TrainingSession, SessionSummary, DebriefReport } from '../../shared/types';
+import { client } from '../api';
 
 interface AppState {
-  // Data
   personas: DistilledPersona[];
   selectedPersona: DistilledPersona | null;
   selectedBasePersonaId: string | null;
   sessions: SessionSummary[];
   session: TrainingSession | null;
-  review: DualReviewReport | null;
+  review: DebriefReport | null;
   error: string | null;
 
-  // Actions
   setError: (error: string | null) => void;
   loadPersonas: () => Promise<void>;
   selectBase: (personaId: string) => void;
@@ -82,7 +80,7 @@ export const useAppStore = create<AppState>((set, get) => ({
       set({ error: null });
       const session = await client.getSession(sessionId);
       set({ session });
-      if (session.status === "reviewed") {
+      if (session.status === 'reviewed') {
         try {
           const review = await client.getReview(sessionId);
           set({ review });
@@ -109,9 +107,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
 
-  viewReview: () => {
-    // Navigation handled by component
-  },
+  viewReview: () => {},
 
   clonePersona: async (personaId) => {
     try {
@@ -134,7 +130,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   deleteSession: async (sessionId) => {
-    if (!confirm("确定要永久删除这个会话吗？\n\n删除后无法恢复，包括聊天记录和复盘数据都会被清除。")) return false;
+    if (!confirm('确定要永久删除这个会话吗？\n\n删除后无法恢复，包括聊天记录和复盘数据都会被清除。')) return false;
     try {
       set({ error: null });
       await client.deleteSession(sessionId);
@@ -152,13 +148,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   resetNavigation: () => {
-    set({
-      selectedPersona: null,
-      selectedBasePersonaId: null,
-      session: null,
-      review: null,
-      sessions: [],
-    });
+    set({ selectedPersona: null, selectedBasePersonaId: null, session: null, review: null, sessions: [] });
     get().loadPersonas();
   },
 }));

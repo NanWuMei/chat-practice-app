@@ -20,34 +20,33 @@ afterAll(() => {
   }
 });
 
-describe("Persona Service", () => {
-  it("should load personas after seeding", async () => {
-    // Dynamically import to get fresh module with test DB path
-    // For now, test the basic structure
+describe("Persona Data", () => {
+  it("should have correct persona structure", async () => {
     const { liangYouan } = await import("../../src/server/data");
     expect(liangYouan.id).toBe("liang-youan");
     expect(liangYouan.name).toBe("梁友安");
-    expect(liangYouan.emotionalBankScore).toBe(0);
-  });
-
-  it("should have correct persona structure", async () => {
-    const { liangYouan } = await import("../../src/server/data");
+    expect(liangYouan.role).toContain("27岁");
+    expect(liangYouan.role).toContain("体育经纪人");
     expect(Array.isArray(liangYouan.mentalModels)).toBe(true);
     expect(Array.isArray(liangYouan.personality)).toBe(true);
-    expect(liangYouan.initialState).toHaveProperty("comfort");
-    expect(liangYouan.initialState).toHaveProperty("trust");
-    expect(liangYouan.initialState).toHaveProperty("interest");
-    expect(liangYouan.initialState).toHaveProperty("ambiguity");
-    expect(liangYouan.initialState).toHaveProperty("pressure");
+    expect(liangYouan.communication).toHaveProperty("avg_message_length_baseline");
   });
-});
 
-describe("Mentor Data", () => {
-  it("should have correct mentor structures", async () => {
-    const { tongJincheng, gottman } = await import("../../src/server/data");
-    expect(tongJincheng.id).toBe("tong-jincheng");
-    expect(tongJincheng.role).toBe("practical");
-    expect(gottman.id).toBe("john-gottman");
-    expect(gottman.role).toBe("psychology");
+  it("should have psychology and communication fields", async () => {
+    const { liangYouan } = await import("../../src/server/data");
+    expect(liangYouan.psychology).toBeDefined();
+    expect(liangYouan.psychology.attachment_style).toBeTruthy();
+    expect(liangYouan.psychology.emotion_expression).toBeTruthy();
+    expect(liangYouan.communication).toBeDefined();
+    expect(Array.isArray(liangYouan.communication.energy_topics)).toBe(true);
+    expect(Array.isArray(liangYouan.communication.sensitive_topics)).toBe(true);
+    expect(liangYouan.communication.rhythm_preference).toBeTruthy();
+  });
+
+  it("should have known_patterns and meta fields", async () => {
+    const { liangYouan } = await import("../../src/server/data");
+    expect(Array.isArray(liangYouan.known_patterns)).toBe(true);
+    expect(liangYouan.meta).toBeDefined();
+    expect(liangYouan.meta.session_count).toBe(0);
   });
 });
