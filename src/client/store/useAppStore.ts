@@ -19,11 +19,9 @@ interface AppState {
   createSession: (personaId: string) => Promise<TrainingSession | null>;
   resumeSession: (sessionId: string) => Promise<void>;
   endAndReview: (sessionId: string) => Promise<void>;
-  viewReview: () => void;
   clonePersona: (personaId: string) => Promise<void>;
   deleteClone: (personaId: string) => Promise<void>;
   deleteSession: (sessionId: string) => Promise<boolean>;
-  resetNavigation: () => void;
 }
 
 export const useAppStore = create<AppState>((set, get) => ({
@@ -107,7 +105,6 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
 
-  viewReview: () => {},
 
   clonePersona: async (personaId) => {
     try {
