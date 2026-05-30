@@ -67,7 +67,7 @@ export function addMessage(sessionId: string, role: ChatMessage['role'], content
 }
 
 // ============================================================
-// Reviews（v3.0：DebriefReport）
+// 复盘报告存档
 // ============================================================
 
 export function getReview(sessionId: string): DebriefReport | null {
@@ -80,7 +80,7 @@ export function saveReview(sessionId: string, review: DebriefReport): void {
 }
 
 // ============================================================
-// Debrief Sessions（v3.0：存档用）
+// 复盘会话存档
 // ============================================================
 
 export function getDebriefSession(sessionId: string): DebriefSession | null {

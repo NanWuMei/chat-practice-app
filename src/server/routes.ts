@@ -89,7 +89,7 @@ router.get('/api/sessions/:id', (req: Request, res: Response) => {
 });
 
 // ============================================================
-// 发送消息（v3.0简化版）
+// 发送消息
 // ============================================================
 
 router.post('/api/sessions/:id/messages', async (req: Request, res: Response) => {
@@ -135,7 +135,7 @@ router.post('/api/sessions/:id/messages', async (req: Request, res: Response) =>
 });
 
 // ============================================================
-// 运行复盘（v3.0镜子模式 M0+M1+M2）
+// 运行复盘（M0+M1+M2）
 // ============================================================
 
 router.post('/api/sessions/:id/review', async (req: Request, res: Response) => {
@@ -323,7 +323,7 @@ router.post('/api/sessions/:id/debrief/complete', async (req: Request, res: Resp
     }
   }
 
-  // 隐性更新（v3.1：resonance 字段）
+  // 隐性更新关系状态
   growthService.updateAfterDebrief(
     session.personaId,
     debrief,

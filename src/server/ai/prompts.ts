@@ -25,7 +25,7 @@ export function loadSkill(skillRelativePath: string): string {
 }
 
 // ============================================================
-// 角色对话 Prompt（v3.0 — 含温度系统）
+// 角色对话 Prompt（含温度系统）
 // ============================================================
 
 export function buildChatPrompt(
@@ -103,7 +103,7 @@ function formatPersonaSL1(persona: DistilledPersona): string {
 }
 
 // ============================================================
-// M2 苏格拉底提问 Prompt（v3.0 — 基础版，后续蒸馏替换）
+// M2 苏格拉底提问 Prompt
 // ============================================================
 
 export function buildSocratesPrompt(m1: M1Output, previousAnchor?: ActionAnchor | null): { system: string; user: string } {
@@ -174,7 +174,7 @@ export function buildSocratesPrompt(m1: M1Output, previousAnchor?: ActionAnchor 
 }
 
 // ============================================================
-// M4 聚合问题 Prompt（v3.0 — 基础版）
+// M4 聚合问题 Prompt
 // ============================================================
 
 export function buildAggregateSocratesPrompt(

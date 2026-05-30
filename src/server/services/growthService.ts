@@ -2,7 +2,7 @@ import db from '../db';
 import type { UserGrowthRecord, RelationshipState, DebriefSession, RawReflection, PatternContextEntry } from '../../shared/types';
 
 // ============================================================
-// SL-2：用户成长记录管理（v3.1 — 交互共振 + 解耦温度）
+// 用户成长记录管理（交互共振 + 解耦温度）
 // ============================================================
 
 export function getGrowthRecord(personaId: string): UserGrowthRecord | null {
@@ -41,7 +41,7 @@ export function getOrCreateGrowthRecord(personaId: string): UserGrowthRecord {
 }
 
 // ============================================================
-// 复盘后更新（v3.1 — 交互共振 + 解耦温度）
+// 复盘后更新
 // ============================================================
 
 const BASE_TEMP_MAP: Record<string, number> = {
