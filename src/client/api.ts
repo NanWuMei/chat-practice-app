@@ -81,6 +81,11 @@ export const client = {
       '/api/sessions/' + sessionId + '/last-anchor',
     ),
 
+  getGrowth: (personaId: string) =>
+    api<{ relationship_state: { current_stage: string; current_temperature: string; resonance_score: number; resonance_level: string } }>(
+      '/api/personas/' + personaId + '/growth',
+    ),
+
   clonePersona: (personaId: string) =>
     api<DistilledPersona>('/api/personas/' + personaId + '/clone', { method: 'POST' }),
 
