@@ -27,7 +27,7 @@ export function getOrCreateGrowthRecord(personaId: string): UserGrowthRecord {
   };
 
   const newRecord: UserGrowthRecord = {
-    user_id: 'nanwumei',
+    user_id: 'default_user',
     relationship_state: initialState,
     debrief_sessions: [],
     growth: {
