@@ -25,7 +25,7 @@ export function loadSkill(skillRelativePath: string): string {
 }
 
 // ============================================================
-// 角色对话 Prompt（含温度系统）
+// 角色对话 Prompt（含温度系统）—— 加载梁友安 skill
 // ============================================================
 
 export function buildChatPrompt(
@@ -43,6 +43,9 @@ export function buildChatPrompt(
     '',
     '==== 人物档案 ====',
     formatPersonaSL1(persona),
+    '',
+    '==== 思维操作系统 ====',
+    skillContent,
     '',
     '==== 心智模型 ====',
     persona.mentalModels.map((m, i) => (i + 1) + '. ' + m).join('\n'),
@@ -103,11 +106,10 @@ function formatPersonaSL1(persona: DistilledPersona): string {
 }
 
 // ============================================================
-// M2 苏格拉底提问 Prompt
+// M2 苏格拉底提问 Prompt —— 加载苏格拉底 skill
 // ============================================================
 
 export function buildSocratesPrompt(m1: M1Output, previousAnchor?: ActionAnchor | null): { system: string; user: string } {
-  // 加载蒸馏好的苏格拉底角色卡
   const skillContent = loadSkill('socrates-perspective/socrates-perspective.skill.md');
 
   const system = [
@@ -177,7 +179,7 @@ export function buildSocratesPrompt(m1: M1Output, previousAnchor?: ActionAnchor 
 }
 
 // ============================================================
-// M4 聚合问题 Prompt
+// M4 聚合问题 Prompt —— 加载苏格拉底 skill
 // ============================================================
 
 export function buildAggregateSocratesPrompt(
@@ -213,6 +215,118 @@ export function buildAggregateSocratesPrompt(
 }
 
 // ============================================================
+// 罗杰斯聚焦器 Prompt —— 加载卡尔·罗杰斯 skill
+// ============================================================
+
+export function buildFocuserPrompt(
+  debrief: import('../../shared/types').DebriefSession,
+  m0Stats: M0Output['stats'],
+  previousAnchor?: ActionAnchor | null,
+): { system: string; user: string } {
+  const skillContent = loadSkill('carl-rogers-perspective/carl-rogers-perspective.skill.md');
+
+  const system = [
+    '==== 卡尔·罗杰斯思维操作系统 ====',
+    skillContent,
+    '',
+    '## 当前任务',
+    '',
+    '你需要帮用户生成"行动聚焦器"——一段镜像摘要 + 2-3个下一步行动选项。',
+    '',
+    '你将收到三类输入：',
+    '1. 【对话记录】本次会话的聊天记录和关键时刻数据',
+    '2. 【上次锚点】用户上次复盘时选择/写的行动锚点及执行反馈',
+    '3. 【本次反思】用户在苏格拉底环节填写的所有反思回答',
+    '',
+    '## 处理规则',
+    '',
+    '### 镜像摘要（mirror_summary）',
+    '- 只描述行为模式，不评价好坏',
+    '- 基于对话记录中的客观数据：发消息频率、追问次数、自我暴露次数、关键时刻类型',
+    '- 不超过30个字，用"你"开头',
+    '- 例："你这次聊了40分钟，问了她8个问题，但没有提到自己的事"',
+    '',
+    '### 选项生成（options）',
+    '每个选项必须满足：',
+    '- 【场景触发条件】具体到什么时候（情境+时机），不能是"下次聊天时"这种模糊表述',
+    '- 【行为动作】一个可观察、可执行的动作，不能是"多关注自己"这种抽象方向',
+    '- 【第一人称】用"我"开头，不用"你应该"',
+    '- 【不超过25字】选项全文不超过25个字',
+    '',
+    '选项之间必须：',
+    '- 真正有差异——不是同一方向的不同措辞',
+    '- 至少覆盖两个不同的方向（如：一个改变行为，一个调整注意力）',
+    '- 有一个选项必须是"先不改，只观察"——给用户不需要立刻行动的出口',
+    '',
+    '### 数据校准',
+    '- 如果上次锚点有 outcome（用户尝试了）→ 选项可以稍有挑战性，在上次基础上推进',
+    '- 如果上次锚点没有 outcome 或"未尝试"→ 选项偏向巩固或换角度，不加压',
+    '- 如果苏格拉底反思中用户表现出困惑/不确定 → 选项语气更柔和，多给观察性选项',
+    '- 如果反思中用户有清晰洞察 → 选项可以更聚焦、更行动导向',
+    '',
+    '### 输出格式',
+    '严格输出JSON，不加任何其他内容：',
+    '{',
+    '  "mirror_summary": "你这次...",',
+    '  "options": [',
+    '    {"id": "A", "label": "下次她问我时，我先说一句自己的再反问", "trigger": "她问你近况的时候", "action": "先分享自己，再反问回去"},',
+    '    {"id": "B", "label": "我留意她主动发新话题时的情绪", "trigger": "她主动换话题的瞬间", "action": "感受她的情绪而不是分析内容"},',
+    '    {"id": "C", "label": "这次先不改，我继续按现在的方式聊", "trigger": "任何场景", "action": "保持现状，带着觉察继续"}',
+    '  ]',
+    '}',
+  ].join('\n');
+
+  // 构建对话记录摘要
+  const statsStr = [
+    '总消息数：' + m0Stats.total_messages,
+    '用户消息数：' + m0Stats.user_count,
+    '对方消息数：' + m0Stats.her_count,
+    '对方平均回复长度：' + m0Stats.avg_her_length + '字',
+    '基线回复长度：' + m0Stats.baseline_her_length + '字',
+  ].join('，');
+
+  // 关键时刻摘要
+  const kmSummaryStr = debrief.key_moments.map((km) => {
+    return km.type_label + '（' + km.type + '）';
+  }).join('、');
+
+  // 反思回答
+  const reflectionsStr = debrief.key_moments
+    .filter((km) => km.answered && km.user_answer)
+    .map((km) => {
+      return '[' + km.type_label + '] 问题："' + km.system_question + '" → 回答："' + km.user_answer + '"';
+    })
+    .join('\n');
+
+  // 上次锚点
+  let anchorStr = '无';
+  if (previousAnchor) {
+    anchorStr = '"' + previousAnchor.content + '"';
+    if (previousAnchor.outcome) {
+      anchorStr += '\n用户反馈："' + previousAnchor.outcome + '"';
+    } else {
+      anchorStr += '\n（尚未反馈执行情况）';
+    }
+  }
+
+  const user = [
+    '=== 对话记录 ===',
+    statsStr,
+    '关键时刻：' + (kmSummaryStr || '无'),
+    '',
+    '=== 上次锚点 ===',
+    anchorStr,
+    '',
+    '=== 本次反思 ===',
+    reflectionsStr || '（用户跳过了所有反思问题）',
+    '',
+    '请生成聚焦器。',
+  ].join('\n');
+
+  return { system, user };
+}
+
+// ============================================================
 // 长期记忆提取 Prompt（保留，简化）
 // ============================================================
 
@@ -238,3 +352,4 @@ export function buildMemoryExtractionPrompt(
 
   return { system, user };
 }
+

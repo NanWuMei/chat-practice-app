@@ -121,6 +121,22 @@ export type ActionAnchor = {
   outcome: string | null;
 };
 
+// ============================================================
+// 聚焦器（罗杰斯）
+// ============================================================
+
+export type FocuserOption = {
+  id: string;              // 'A' | 'B' | 'C'
+  label: string;           // ≤25字，第一人称"我"
+  trigger: string;         // 场景触发条件
+  action: string;          // 行为动作
+};
+
+export type FocuserOutput = {
+  mirror_summary: string;  // 一句话行为模式镜像
+  options: FocuserOption[]; // 2-3个选项
+};
+
 export type DebriefSession = {
   session_id: string;
   date: string;
@@ -129,6 +145,8 @@ export type DebriefSession = {
   resonance_delta: number;
   km_summary: Record<KMType, number>;
   pattern_discovery?: PatternDiscovery;
+  focuser?: FocuserOutput | null;
+  selected_focus?: string | null;
 };
 
 // ============================================================

@@ -1,5 +1,5 @@
-import type { DebriefReport, DebriefSession, PatternDiscovery, ActionAnchor } from '../../shared/types';
-import { useState, useEffect } from 'react';
+import type { DebriefReport, DebriefSession, PatternDiscovery, ActionAnchor, FocuserOutput } from '../../shared/types';
+import { useState, useEffect, useCallback } from 'react';
 import { client } from '../api';
 
 interface Props {
@@ -10,8 +10,8 @@ interface Props {
   onComplete: () => void;
 }
 
-// 状态机：tracking → moments → anchor → complete
-type Phase = 'loading' | 'tracking' | 'moments' | 'anchor' | 'complete';
+// 状态机：tracking → moments → focuser → complete
+type Phase = 'loading' | 'tracking' | 'moments' | 'focuser' | 'focuser-loading' | 'complete';
 
 export function ReviewScreen({ review, debrief, sessionId, onBack, onComplete }: Props) {
   const [phase, setPhase] = useState<Phase>('loading');
@@ -25,9 +25,13 @@ export function ReviewScreen({ review, debrief, sessionId, onBack, onComplete }:
   const [trackingAnswer, setTrackingAnswer] = useState('');
   const [trackingSubmitting, setTrackingSubmitting] = useState(false);
 
-  // CHG-1：行动锚点状态
-  const [anchorContent, setAnchorContent] = useState('');
-  const [anchorSubmitting, setAnchorSubmitting] = useState(false);
+  // 聚焦器状态
+  const [focuser, setFocuser] = useState<FocuserOutput | null>(null);
+  const [selectedOptionId, setSelectedOptionId] = useState<string | null>(null);
+  const [customContent, setCustomContent] = useState('');
+  const [focuserSubmitting, setFocuserSubmitting] = useState(false);
+  const [useFallbackAnchor, setUseFallbackAnchor] = useState(false);
+  const [fallbackAnchorContent, setFallbackAnchorContent] = useState('');
 
   // 模式分类展开状态
   const [expandedPattern, setExpandedPattern] = useState<number | null>(null);
@@ -48,6 +52,25 @@ export function ReviewScreen({ review, debrief, sessionId, onBack, onComplete }:
       }
     }).catch(() => setPhase('moments'));
   }, [sessionId, phase]);
+
+  // 进入聚焦器阶段时，调用 AI 生成选项
+  const loadFocuser = useCallback(async () => {
+    setPhase('focuser-loading');
+    try {
+      const result = await client.generateFocuser(sessionId);
+      if (result.focuser && result.focuser.options && result.focuser.options.length > 0) {
+        setFocuser(result.focuser);
+        setPhase('focuser');
+      } else {
+        // AI 失败或返回无效数据，降级为自由文本
+        setUseFallbackAnchor(true);
+        setPhase('focuser');
+      }
+    } catch {
+      setUseFallbackAnchor(true);
+      setPhase('focuser');
+    }
+  }, [sessionId]);
 
   // ─── CHG-2：提交回溯结果 ───
   const handleTrackSubmit = async () => {
@@ -85,7 +108,7 @@ export function ReviewScreen({ review, debrief, sessionId, onBack, onComplete }:
       if (currentKmIdx < keyMoments.length - 1) {
         setCurrentKmIdx(currentKmIdx + 1);
       } else {
-        setPhase('anchor');
+        await loadFocuser();
       }
     } catch (e) {
       alert('保存失败：' + (e as Error).message);
@@ -102,32 +125,68 @@ export function ReviewScreen({ review, debrief, sessionId, onBack, onComplete }:
       if (currentKmIdx < keyMoments.length - 1) {
         setCurrentKmIdx(currentKmIdx + 1);
       } else {
-        setPhase('anchor');
+        await loadFocuser();
       }
     } catch (e) {
       alert('跳过失败：' + (e as Error).message);
     }
   };
 
-  // ─── CHG-1：M2.5 行动锚点 ───
-  const handleSaveAnchor = async () => {
-    setAnchorSubmitting(true);
+  // ─── 聚焦器：选择选项 ───
+  const handleSelectOption = (optionId: string) => {
+    setSelectedOptionId(optionId);
+    setCustomContent('');
+  };
+
+  // ─── 聚焦器：自定义输入 ───
+  const handleCustomInput = (text: string) => {
+    setCustomContent(text);
+    setSelectedOptionId(null);
+  };
+
+  // ─── 聚焦器：确认锚点 ───
+  const handleFocuserConfirm = async () => {
+    let anchorText: string | null = null;
+
+    if (selectedOptionId && focuser) {
+      const option = focuser.options.find((o) => o.id === selectedOptionId);
+      anchorText = option?.label ?? null;
+    } else if (customContent.trim()) {
+      anchorText = customContent.trim();
+    }
+
+    if (!anchorText) return;
+
+    setFocuserSubmitting(true);
     try {
-      await client.saveActionAnchor(sessionId, anchorContent.trim() || null);
+      await client.saveActionAnchor(sessionId, anchorText);
       await finishDebrief();
     } catch (e) {
       alert('保存失败：' + (e as Error).message);
-      setAnchorSubmitting(false);
+      setFocuserSubmitting(false);
     }
   };
 
-  const handleSkipAnchor = async () => {
-    setAnchorSubmitting(true);
+  // ─── 聚焦器：跳过 ───
+  const handleFocuserSkip = async () => {
+    setFocuserSubmitting(true);
     try {
       await client.saveActionAnchor(sessionId, null);
       await finishDebrief();
     } catch (e) {
-      setAnchorSubmitting(false);
+      setFocuserSubmitting(false);
+    }
+  };
+
+  // ─── 降级锚点：确认 ───
+  const handleFallbackConfirm = async () => {
+    setFocuserSubmitting(true);
+    try {
+      await client.saveActionAnchor(sessionId, fallbackAnchorContent.trim() || null);
+      await finishDebrief();
+    } catch (e) {
+      alert('保存失败：' + (e as Error).message);
+      setFocuserSubmitting(false);
     }
   };
 
@@ -148,6 +207,22 @@ export function ReviewScreen({ review, debrief, sessionId, onBack, onComplete }:
     return <div className="review-screen"><p>加载中...</p></div>;
   }
 
+  // ─── 聚焦器加载中 ───
+  if (phase === 'focuser-loading') {
+    return (
+      <div className="review-screen">
+        <div className="review-header">
+          <button onClick={onBack} className="back-btn">&larr; 返回</button>
+          <h1>对话复盘</h1>
+        </div>
+        <div className="focuser-loading">
+          <div className="focuser-loading-icon">🪞</div>
+          <p>罗杰斯正在聚焦...</p>
+        </div>
+      </div>
+    );
+  }
+
   // ─── CHG-2：回溯追踪界面 ───
   if (phase === 'tracking' && prevAnchor) {
     return (
@@ -158,18 +233,18 @@ export function ReviewScreen({ review, debrief, sessionId, onBack, onComplete }:
         </div>
         <div className="tracking-card">
           <div className="tracking-title">上次的行动锚点</div>
-          <div className="tracking-quote">"{prevAnchor.content}"</div>
-          <div className="tracking-question">你试了吗？发生了什么？</div>
+          <div className="tracking-anchor">"{prevAnchor.content}"</div>
+          <div className="tracking-question">你尝试了吗？发生了什么？</div>
           <textarea
             value={trackingAnswer}
             onChange={(e) => setTrackingAnswer(e.target.value)}
-            placeholder="写下你的经历..."
+            placeholder="写下你的反馈..."
             rows={3}
           />
           <div className="answer-actions">
-            <button className="skip-btn" onClick={handleTrackSkip} disabled={trackingSubmitting}>没有机会试</button>
+            <button className="skip-btn" onClick={handleTrackSkip} disabled={trackingSubmitting}>没尝试</button>
             <button className="submit-btn" onClick={handleTrackSubmit} disabled={trackingSubmitting || !trackingAnswer.trim()}>
-              {trackingSubmitting ? '保存中...' : '提交'}
+              {trackingSubmitting ? '保存中...' : '记录反馈'}
             </button>
           </div>
         </div>
@@ -177,82 +252,125 @@ export function ReviewScreen({ review, debrief, sessionId, onBack, onComplete }:
     );
   }
 
-  // ─── M3：关键时刻提问 ───
-  if (phase === 'moments') {
-    if (!currentKm || keyMoments.length === 0) {
-      // 无关键时刻，直接跳到行动锚点
-      setPhase('anchor');
-      return <div className="review-screen"><p>加载中...</p></div>;
-    }
-
+  // ─── M3：苏格拉底提问界面 ───
+  if (phase === 'moments' && currentKm) {
     return (
       <div className="review-screen">
         <div className="review-header">
           <button onClick={onBack} className="back-btn">&larr; 返回</button>
           <h1>对话复盘</h1>
-          <p className="review-meta">{keyMoments.length}个值得停一停的时刻</p>
+          <div className="progress">{currentKmIdx + 1} / {keyMoments.length}</div>
         </div>
         <div className="moment-card">
-          <div className="moment-progress">时刻 {currentKmIdx + 1} / {keyMoments.length}</div>
           <div className="moment-type">{currentKm.type_label}</div>
           <div className="moment-context">
             {currentKm.context.map((c, i) => (
-              <div key={i} className={'context-line ' + (c.speaker === 'USER' ? 'user' : 'her')}>
-                <span className="speaker">{c.speaker === 'USER' ? '用户' : '她'}：</span>
-                <span className="content">{c.content}</span>
+              <div key={i} className={'ctx-line ' + (c.speaker === 'USER' ? 'ctx-user' : 'ctx-her')}>
+                <span className="ctx-speaker">{c.speaker === 'USER' ? '你' : '她'}：</span>
+                <span className="ctx-text">{c.content.replace(' [关键节点]', '')}</span>
               </div>
             ))}
           </div>
           {currentKm.system_question && (
             <div className="socrates-question">
-              <span className="question-icon">?</span>
-              <span className="question-text">{currentKm.system_question}</span>
+              <span className="socrates-icon">🤔</span>
+              <span>{currentKm.system_question}</span>
             </div>
           )}
-          <div className="answer-section">
-            <textarea
-              value={answer}
-              onChange={(e) => setAnswer(e.target.value)}
-              placeholder="你的想法..."
-              rows={4}
-            />
-            <div className="answer-actions">
-              <button className="skip-btn" onClick={handleSkipMoment}>跳过</button>
-              <button className="submit-btn" onClick={handleSubmitAnswer} disabled={submitting || !answer.trim()}>
-                {submitting ? '保存中...' : '完成这个时刻'}
-              </button>
-            </div>
+          <textarea
+            value={answer}
+            onChange={(e) => setAnswer(e.target.value)}
+            placeholder="写下你的想法..."
+            rows={3}
+          />
+          <div className="answer-actions">
+            <button className="skip-btn" onClick={handleSkipMoment} disabled={submitting}>跳过</button>
+            <button className="submit-btn" onClick={handleSubmitAnswer} disabled={submitting || !answer.trim()}>
+              {submitting ? '保存中...' : '下一个'}
+            </button>
           </div>
         </div>
       </div>
     );
   }
 
-  // ─── CHG-1：M2.5 行动锚点 ───
-  if (phase === 'anchor') {
+  // ─── 聚焦器界面（降级：自由文本锚点） ───
+  if (phase === 'focuser' && useFallbackAnchor) {
     return (
       <div className="review-screen">
         <div className="review-header">
           <button onClick={onBack} className="back-btn">&larr; 返回</button>
           <h1>对话复盘</h1>
         </div>
-        <div className="anchor-card">
-          <div className="anchor-title">行动锚点</div>
-          <div className="anchor-description">
-            基于刚才的发现，下次跟梁友安聊天时，<br />
-            你想试的一个小变化是什么？<br />
-            <span className="anchor-hint">不需要是大事。可以是一句话、一个态度、一个尝试。</span>
-          </div>
+        <div className="focuser-section">
+          <div className="focuser-fallback-notice">聚焦器暂时不可用，请手动写下锚点</div>
+          <div className="focuser-label">下次你想试试什么？</div>
           <textarea
-            value={anchorContent}
-            onChange={(e) => setAnchorContent(e.target.value)}
+            value={fallbackAnchorContent}
+            onChange={(e) => setFallbackAnchorContent(e.target.value)}
             placeholder="下次我想试试..."
             rows={3}
           />
           <div className="answer-actions">
-            <button className="skip-btn" onClick={handleSkipAnchor} disabled={anchorSubmitting}>这次先不写</button>
-            <button className="submit-btn" onClick={handleSaveAnchor} disabled={anchorSubmitting || !anchorContent.trim()}>
-              {anchorSubmitting ? '保存中...' : '写下锚点'}
+            <button className="skip-btn" onClick={handleFocuserSkip} disabled={focuserSubmitting}>这次先不写</button>
+            <button className="submit-btn" onClick={handleFallbackConfirm} disabled={focuserSubmitting || !fallbackAnchorContent.trim()}>
+              {focuserSubmitting ? '保存中...' : '写下锚点'}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ─── 聚焦器界面（正常：AI 生成选项） ───
+  if (phase === 'focuser' && focuser) {
+    const hasSelection = selectedOptionId !== null || customContent.trim().length > 0;
+
+    return (
+      <div className="review-screen">
+        <div className="review-header">
+          <button onClick={onBack} className="back-btn">&larr; 返回</button>
+          <h1>对话复盘</h1>
+        </div>
+
+        <div className="focuser-section">
+          {/* 镜像摘要 */}
+          <div className="focuser-mirror">
+            <span className="focuser-mirror-icon">🪞</span>
+            <span className="focuser-mirror-text">"{focuser.mirror_summary}"</span>
+          </div>
+
+          {/* 选项卡片 */}
+          <div className="focuser-options">
+            {focuser.options.map((opt) => (
+              <button
+                key={opt.id}
+                className={'focuser-option' + (selectedOptionId === opt.id ? ' selected' : '')}
+                onClick={() => handleSelectOption(opt.id)}
+              >
+                <span className="focuser-option-id">{opt.id}</span>
+                <span className="focuser-option-label">{opt.label}</span>
+              </button>
+            ))}
+          </div>
+
+          {/* 自定义输入 */}
+          <div className="focuser-custom">
+            <div className="focuser-custom-label">✏️ 自定义</div>
+            <textarea
+              value={customContent}
+              onChange={(e) => handleCustomInput(e.target.value)}
+              onFocus={() => setSelectedOptionId(null)}
+              placeholder="写下你自己的锚点..."
+              rows={2}
+            />
+          </div>
+
+          {/* 操作按钮 */}
+          <div className="answer-actions">
+            <button className="skip-btn" onClick={handleFocuserSkip} disabled={focuserSubmitting}>跳过</button>
+            <button className="submit-btn" onClick={handleFocuserConfirm} disabled={focuserSubmitting || !hasSelection}>
+              {focuserSubmitting ? '保存中...' : '确认锚点'}
             </button>
           </div>
         </div>
@@ -273,7 +391,6 @@ export function ReviewScreen({ review, debrief, sessionId, onBack, onComplete }:
           <h2>你的历史模式</h2>
           <p className="patterns-subtitle">点击展开查看详情</p>
           {patterns.patterns.map((p, i) => {
-            // 按问题分组
             const questionGroups: Record<string, typeof p.items> = {};
             for (const item of p.items) {
               const q = item.question || '（无问题）';

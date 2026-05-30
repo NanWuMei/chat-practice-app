@@ -1,4 +1,4 @@
-import type { DistilledPersona, TrainingSession, ChatMessage, DebriefReport, DebriefSession, SessionSummary, PatternDiscovery, ActionAnchor } from '../shared/types';
+import type { DistilledPersona, TrainingSession, ChatMessage, DebriefReport, DebriefSession, SessionSummary, PatternDiscovery, ActionAnchor, FocuserOutput } from '../shared/types';
 
 const BASE = import.meta.env.VITE_API_BASE ?? 'http://localhost:8787';
 
@@ -81,6 +81,13 @@ export const client = {
       '/api/sessions/' + sessionId + '/last-anchor',
     ),
 
+    generateFocuser: (sessionId: string) =>
+    api<{ focuser: FocuserOutput | null; fallback: boolean }>(
+      '/api/sessions/' + sessionId + '/debrief/focuser', {
+        method: 'POST',
+      },
+    ),
+
   getGrowth: (personaId: string) =>
     api<{ relationship_state: { current_stage: string; current_temperature: string; resonance_score: number; resonance_level: string } }>(
       '/api/personas/' + personaId + '/growth',
@@ -95,3 +102,4 @@ export const client = {
   deletePersona: (personaId: string) =>
     api<{ success: true }>('/api/personas/' + personaId, { method: 'DELETE' }),
 };
+

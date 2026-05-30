@@ -1,8 +1,8 @@
 import { Router, type Request, type Response } from 'express';
 import { randomUUID } from 'crypto';
-import type { ChatMessage, TrainingSession, SessionSummary, DistilledPersona, DebriefSession, DebriefReport, KMType, PatternDiscovery, PatternContextEntry, ActionAnchor } from '../shared/types';
+import type { TrainingSession, SessionSummary, DebriefSession, KMType, PatternDiscovery, PatternContextEntry, FocuserOutput } from '../shared/types';
 import { callAIWithRetry } from './ai/provider';
-import { buildChatPrompt, buildAggregateSocratesPrompt } from './ai/prompts';
+import { buildChatPrompt, buildAggregateSocratesPrompt, buildFocuserPrompt } from './ai/prompts';
 import { parseChatModelResult } from '../shared/validators';
 import { runMirrorDebrief, updateBaseline } from './ai/review';
 import { liangYouan } from './data';
@@ -227,6 +227,81 @@ router.post('/api/sessions/:id/debrief/skip', (req: Request, res: Response) => {
   sessionService.saveDebriefSession(id!, debrief);
   res.json({ success: true });
 });
+  // ============================================================
+  // 罗杰斯聚焦器 — 生成行动选项
+  // ============================================================
+
+  router.post('/api/sessions/:id/debrief/focuser', async (req: Request, res: Response) => {
+    const { id } = req.params;
+    const session = sessionService.getSession(id!);
+    if (!session) { res.status(404).json({ error: '会话不存在' }); return; }
+
+    const debrief = sessionService.getDebriefSession(id!);
+    if (!debrief) { res.status(404).json({ error: '复盘记录不存在' }); return; }
+
+    // 读取对话记录统计
+    const chatMsgs = sessionService.getMessages(id!);
+    if (!chatMsgs || chatMsgs.length < 2) { res.status(400).json({ error: '对话太短' }); return; }
+
+    // 计算 M0 统计数据
+    const userMsgs = chatMsgs.filter((m) => m.role === 'user');
+    const personaMsgs = chatMsgs.filter((m) => m.role === 'persona');
+    const avgHerLength = personaMsgs.length > 0
+      ? Math.round(personaMsgs.reduce((sum, m) => sum + m.content.length, 0) / personaMsgs.length)
+      : 0;
+
+    const persona = personaService.getPersona(session.personaId);
+    const baselineHerLength = persona?.communication.avg_message_length_baseline ?? 0;
+
+    const m0Stats = {
+      total_messages: chatMsgs.length,
+      user_count: userMsgs.length,
+      her_count: personaMsgs.length,
+      avg_her_length: avgHerLength,
+      baseline_her_length: baselineHerLength,
+    };
+
+    // 读取上次锚点
+    const previousAnchor = growthService.getPreviousUntrackedAnchor(session.personaId);
+
+    try {
+      const prompt = buildFocuserPrompt(debrief, m0Stats, previousAnchor);
+      const raw = await callAIWithRetry(
+        [
+          { role: 'system', content: prompt.system },
+          { role: 'user', content: prompt.user },
+        ],
+        { temperature: 0.7, maxTokens: 800 },
+      );
+
+      // raw 已经被 callAIWithRetry/extractJSON 解析过，直接验证结构
+      const parsed = raw as Record<string, unknown>;
+      if (!parsed || typeof parsed.mirror_summary !== 'string' || !Array.isArray(parsed.options) || parsed.options.length === 0) {
+        console.warn('聚焦器返回结构无效，降级为 null');
+        res.json({ focuser: null, fallback: true });
+        return;
+      }
+      const focuser: FocuserOutput = {
+        mirror_summary: parsed.mirror_summary as string,
+        options: (parsed.options as Array<Record<string, unknown>>).map((o) => ({
+          id: String(o.id ?? ''),
+          label: String(o.label ?? ''),
+          trigger: String(o.trigger ?? ''),
+          action: String(o.action ?? ''),
+        })),
+      };
+
+      // 存入 debrief
+      debrief.focuser = focuser;
+      sessionService.saveDebriefSession(id!, debrief);
+
+      res.json({ focuser, fallback: false });
+    } catch (err) {
+      console.error('聚焦器生成失败:', err);
+      res.json({ focuser: null, fallback: true });
+    }
+  });
+
 
 // ============================================================
 // CHG-1：M2.5 行动锚点 — 保存
@@ -489,3 +564,6 @@ router.get('/api/sessions/:id/last-anchor', (req: Request, res: Response) => {
   const anchor = growthService.getLastAnchor(session.personaId);
   res.json({ anchor });
 });
+
+
+
