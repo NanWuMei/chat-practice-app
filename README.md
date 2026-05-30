@@ -9,12 +9,14 @@
 ```bash
 git clone https://github.com/NanWuMei/chat-practice-app.git
 cd chat-practice-app
-npm install
-copy .env.example .env   # Windows（macOS/Linux 用 cp）
-npm start              # 一键启动前端+后端
+npm start
 ```
 
-启动后打开 http://localhost:5173，选择角色即可开始。
+启动后浏览器自动打开 http://localhost:5173，选择角色即可开始。
+
+> **首次运行需要配置 AI API：** 编辑项目根目录的 `.env` 文件，填入你的 API Key。
+> 支持任意 OpenAI 兼容服务商（小米 MiMo、DeepSeek、OpenAI 等）。
+> 详细步骤见 [SETUP.md](./SETUP.md)。
 
 ## 使用流程
 
@@ -79,7 +81,7 @@ npm start              # 一键启动前端+后端
 | 前端 | React 19 + TypeScript + Vite |
 | 后端 | Express + TypeScript |
 | 数据库 | SQLite (better-sqlite3) |
-| AI | 小米 MiMo API（OpenAI 兼容格式） |
+| AI | OpenAI 兼容格式（支持小米 MiMo、DeepSeek、OpenAI 等） |
 
 ## 常用命令
 
