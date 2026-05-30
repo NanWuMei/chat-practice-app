@@ -10,7 +10,7 @@
 git clone https://github.com/NanWuMei/chat-practice-app.git
 cd chat-practice-app
 npm install
-cp .env.example .env   # 编辑 .env 填入你的 API Key
+copy .env.example .env   # Windows（macOS/Linux 用 cp）
 npm start              # 一键启动前端+后端
 ```
 
