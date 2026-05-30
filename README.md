@@ -16,8 +16,6 @@ npm start              # 一键启动前端+后端
 
 启动后打开 http://localhost:5173，选择角色即可开始。
 
-> **API Key 获取：** 前往 [小米 MiMo 开放平台](https://open.xiaomimimo.com) 注册，创建 API Key 填入 `.env` 的 `MIMO_API_KEY`。
-
 ## 使用流程
 
 ```
