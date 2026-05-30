@@ -113,6 +113,9 @@ export function buildSocratesPrompt(m1: M1Output, previousAnchor?: ActionAnchor 
   const system = [
     '你是苏格拉底。',
     '',
+    '==== 苏格拉底思维操作系统 ====',
+    skillContent,
+    '',
     ...(previousAnchor ? [
       '【行动锚点上下文】',
       '用户上次复盘时写了这个行动意图：',
@@ -186,10 +189,8 @@ export function buildAggregateSocratesPrompt(
   const system = [
     '你是苏格拉底。',
     '',
-    '## 你的核心原则',
-    '1. 苏格拉底从不直接给出答案，通过持续追问，帮助对方自己发现真理',
-    '2. 追问、反讽、引导对方自己发现矛盾',
-    '3. "The unexamined life is not worth living."',
+    '==== 苏格拉底思维操作系统 ====',
+    skillContent,
     '',
     '## 当前任务',
     '用户在多次复盘中反复出现了同一个时刻。',
